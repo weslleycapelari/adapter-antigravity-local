@@ -1,9 +1,20 @@
+/**
+ * @fileoverview Stdout stream line parser mapping CLI print messages into UI transcripts.
+ * Analyzes logs and constructs typed conversational transcripts displayed to the user.
+ * 
+ * @copyright Antigravity Adapter Contributors
+ * @license MIT
+ */
+
 import type { TranscriptEntry } from "@paperclipai/adapter-utils";
 
 /**
- * Como o Antigravity CLI no modo `--print` retorna plain text,
- * não precisamos mais de parsers complexos de JSON stream.
- * Tudo que cai no stdout é mapeado como texto do assistente.
+ * Parses a single line of stdout captured during process executions.
+ * Maps error messages to stderr kinds and general outputs to standard assistant transcript blocks.
+ *
+ * @param line - The raw stdout line string.
+ * @param ts - Current ISO timestamp string to assign to the transcript record.
+ * @returns Array representing mapped UI transcript entries.
  */
 export function parseAntigravityStdoutLine(line: string, ts: string): TranscriptEntry[] {
   const text = line.trim();
@@ -12,12 +23,12 @@ export function parseAntigravityStdoutLine(line: string, ts: string): Transcript
     return [];
   }
 
-  // Se no futuro o Antigravity introduzir prefixos de erro no stdout,
-  // podemos interceptá-los aqui. Por enquanto, assumimos text = assistant.
+  // Detect explicit errors printed to standard output streams
   const lowerText = text.toLowerCase();
   if (lowerText.startsWith("error:") || lowerText.startsWith("fatal:")) {
     return [{ kind: "stderr", ts, text }];
   }
 
+  // Treat regular print outputs as assistant responses
   return [{ kind: "assistant", ts, text }];
 }

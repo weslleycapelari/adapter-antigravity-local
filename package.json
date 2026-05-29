@@ -1,15 +1,20 @@
 {
-  "name": "@paperclipai/adapter-antigravity-local",
-  "version": "0.1.0",
+  "name": "@weslleycapelari/adapter-antigravity-local",
+  "version": "1.0.0",
   "license": "MIT",
-  "homepage": "https://github.com/paperclipai/paperclip",
+  "homepage": "https://github.com/weslleycapelari/adapter-antigravity-local",
+  "scripts": {
+    "build": "tsc && cp package.json dist/",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
   "bugs": {
-    "url": "https://github.com/paperclipai/paperclip/issues"
+    "url": "https://github.com/weslleycapelari/adapter-antigravity-local/issues"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/paperclipai/paperclip",
-    "directory": "packages/adapters/antigravity-local"
+    "url": "https://github.com/weslleycapelari/adapter-antigravity-local"
   },
   "type": "module",
   "main": "./dist/index.js",
@@ -46,17 +51,13 @@
     "dist",
     "skills"
   ],
-  "scripts": {
-    "build": "tsc && cp package.json dist/",
-    "clean": "rm -rf dist",
-    "typecheck": "tsc --noEmit"
-  },
   "dependencies": {
-    "@paperclipai/adapter-utils": "workspace:*",
+    "@paperclipai/adapter-utils": "^2026.525.0",
     "picocolors": "^1.1.1"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^4.1.7"
   }
 }

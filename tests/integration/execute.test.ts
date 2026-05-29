@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { execute } from "./execute.js";
+import { execute } from "../../src/server/execute.js";
 
 const {
   runAdapterExecutionTargetProcess,
@@ -31,11 +31,30 @@ vi.mock("@paperclipai/adapter-utils/execution-target", async () => {
   };
 });
 
+vi.mock("@paperclipai/adapter-utils/server-utils", async () => {
+  const actual = await vi.importActual<typeof import("@paperclipai/adapter-utils/server-utils")>(
+    "@paperclipai/adapter-utils/server-utils",
+  );
+  return {
+    ...actual,
+    ensureAbsoluteDirectory: vi.fn(async () => undefined),
+  };
+});
+
+/**
+ * Integration test suite for the local Antigravity execution flow.
+ * Mocks the system process spawn APIs to assert correct argument building, 
+ * environment variables injection, and multi-workspace support.
+ */
 describe("antigravity local execution", () => {
   afterEach(() => {
     vi.clearAllMocks();
   });
 
+  /**
+   * Assures that a basic local run correctly resolves and spawns the `agy` process
+   * with the expected prompt and unattended permission flags.
+   */
   it("successfully invokes agy with local command and correct prompt", async () => {
     const result = await execute({
       runId: "run-local-1",
@@ -74,6 +93,10 @@ describe("antigravity local execution", () => {
     expect(cliArgs).toContain("--dangerously-skip-permissions");
   });
 
+  /**
+   * Asserts that model selection is correctly bound to `env.ANTIGRAVITY_MODEL`
+   * and that no invalid `--model` CLI parameters are appended.
+   */
   it("configures model via env.ANTIGRAVITY_MODEL and does not pass --model CLI flag", async () => {
     await execute({
       runId: "run-local-2",
@@ -111,6 +134,10 @@ describe("antigravity local execution", () => {
     expect(options.env.ANTIGRAVITY_MODEL).toBe("claude-sonnet-4.6-thinking");
   });
 
+  /**
+   * Asserts that multiple active workspaces are mapped correctly using
+   * repeatable `--add-dir` flags on the spawned command line.
+   */
   it("appends multiple workspaces using repeatable --add-dir CLI flags", async () => {
     await execute({
       runId: "run-local-3",

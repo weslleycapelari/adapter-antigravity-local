@@ -1,5 +1,6 @@
-import { type ServerAdapterModule, type AdapterModelProfileDefinition } from "@paperclipai/adapter-utils";
+import { type ServerAdapterModule } from "@paperclipai/adapter-utils";
 import { execute, testEnvironment } from "./server/index.js";
+import type { AntigravityModelDefinition, AntigravityModelProfileDefinition } from "./types.js";
 
 export const type = "antigravity_local";
 export const label = "Antigravity CLI (local)";
@@ -9,7 +10,7 @@ export const SANDBOX_INSTALL_COMMAND = "curl -sSL https://antigravity.google/ins
 
 export const DEFAULT_ANTIGRAVITY_LOCAL_MODEL = "auto";
 
-export const models = [
+export const models: AntigravityModelDefinition[] = [
   { id: DEFAULT_ANTIGRAVITY_LOCAL_MODEL, label: "Auto (Use global configured default)" },
   { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash (Medium)" },
   { id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" },
@@ -19,7 +20,7 @@ export const models = [
   { id: "gpt-oss-120b", label: "GPT-OSS 120B (Medium)" },
 ];
 
-export const modelProfiles: AdapterModelProfileDefinition[] = [
+export const modelProfiles: AntigravityModelProfileDefinition[] = [
   {
     key: "cheap",
     label: "Cheap",
