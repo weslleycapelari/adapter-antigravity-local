@@ -149,4 +149,4 @@ Special thanks to **Ryan Lee** for testing the Paperclip integration, documentin
 * Designed, built, and maintained by **Weslley Capelari**.
 * Open-source repository: [GitHub: weslleycapelari/adapter-antigravity-local](https://github.com/weslleycapelari/adapter-antigravity-local).
 
-License: **[MIT](https://www.google.com/search?q=LICENSE)** — Feel free to use, modify, and distribute.
+License: **[MIT](LICENSE)** — Feel free to use, modify, and distribute.
