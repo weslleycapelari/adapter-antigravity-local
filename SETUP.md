@@ -51,7 +51,7 @@ Edit:
 ~/.paperclip/adapter-plugins.json
 ```
 
-Add:
+If the file already contains other adapters, append this entry to the existing JSON array:
 
 ```json
 [
