@@ -48,7 +48,7 @@ npm install @weslleycapelari/adapter-antigravity-local
 ```
 
 For complete installation and configuration instructions, please refer to the full setup guide:
-👉 **[SETUP.md](https://www.google.com/search?q=./SETUP.md)**
+👉 **[SETUP.md](./SETUP.md)**
 
 ---
 
@@ -134,7 +134,7 @@ Whenever you push a version tag starting with `v` (e.g., `v1.0.0`), the pipeline
 
 ## 📖 Documentation
 
-* **[SETUP.md](https://www.google.com/search?q=./SETUP.md)** — Detailed installation, configuration guide, and troubleshooting.
+* **[SETUP.md](./SETUP.md)** — Detailed installation, configuration guide, and troubleshooting.
 
 ---
 
