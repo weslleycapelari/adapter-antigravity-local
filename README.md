@@ -84,7 +84,7 @@ To work on modifications locally, clone the repository and build the distributio
 
 ```bash
 # Clone and enter the repository
-git clone [https://github.com/weslleycapelari/adapter-antigravity-local.git](https://github.com/weslleycapelari/adapter-antigravity-local.git)
+git clone https://github.com/weslleycapelari/adapter-antigravity-local.git
 cd adapter-antigravity-local
 
 # Install developer dependencies
