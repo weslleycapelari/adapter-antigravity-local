@@ -5,21 +5,15 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Tests Passed](https://img.shields.io/badge/Tests--Passed-62%20/%2062-brightgreen?style=flat-square)](tests)
 
-An official-grade, high-performance **Paperclip AI** adapter designed by **Weslley Capelari** for running **Google Antigravity** (`agy` CLI) agents locally.
+An official-grade, high-performance **Paperclip AI** adapter designed for running **Google Antigravity** (`agy` CLI) agents locally.
 
-This adapter acts as a drop-in, robust, and type-safe replacement for the deprecated Gemini CLI integrations, leveraging the native, stateful, and autonomous capabilities of the modern Google Antigravity agent engine.
+This adapter acts as a drop-in, robust, and type-safe replacement for the deprecated Gemini CLI integrations. It allows Paperclip agents to execute prompts through the modern Google Antigravity engine while supporting workspace synchronization, dynamic model selection, environment bindings, and sandboxed execution.
 
 ---
 
 ## ⚡ Key Features
 
 - **🚀 Native Go CLI Performance**: Spawns the local `agy` binary with fast startup times, low system footprint, and real-time terminal stdout streaming.
-- **🧠 Dynamic Model Routing**: Routes models dynamically via the `ANTIGRAVITY_MODEL` environment variable (rather than invalid CLI flags), mapping descriptive IDs and model profiles:
-  - **Gemini 3.5 Flash** (`gemini-3.5-flash`)
-  - **Gemini 3.1 Pro** (`gemini-3.1-pro-high` & `gemini-3.1-pro-low`)
-  - **Claude 4.6 Sonnet** (`claude-sonnet-4.6-thinking` & `claude-sonnet-4.6-standard`)
-  - **Claude 4.6 Opus** (`claude-opus-4.6-thinking`)
-  - **GPT-OSS 120B** (`gpt-oss-120b-medium`)
 - **📂 Multi-Workspace Sync**: Automatically registers and mounts multiple active Paperclip workspaces into `agy` using repeatable `--add-dir <cwd>` arguments.
 - **⚙️ Headless Resiliency**: Enforces unattended command executions with `--dangerously-skip-permissions` to bypass OS prompt gates in headless containers.
 - **🔒 Isolated Sandboxing**: Enforces strict execution limits and file-system restrictions by appending the `--sandbox` parameter.
@@ -28,31 +22,33 @@ This adapter acts as a drop-in, robust, and type-safe replacement for the deprec
 
 ---
 
-## 📦 Installation & Setup
+## 🤖 Supported Models
 
-### 1. Installation via NPM
+Models are routed dynamically via the `ANTIGRAVITY_MODEL` environment variable (rather than invalid CLI flags).
 
-Install the adapter globally or within your Paperclip workspace scope:
+| Model Family | Supported Profiles & Identifiers |
+|---|---|
+| **Gemini 3.5 Flash** | `gemini-3.5-flash` |
+| **Gemini 3.1 Pro** | `gemini-3.1-pro-high`, `gemini-3.1-pro-low` |
+| **Claude Sonnet 4.6** | `claude-sonnet-4.6-thinking`, `claude-sonnet-4.6-standard` |
+| **Claude Opus 4.6** | `claude-opus-4.6-thinking` |
+| **GPT-OSS 120B** | `gpt-oss-120b-medium` |
+
+> *Note: Model availability depends on your local Antigravity installation and configuration.*
+
+---
+
+## 📦 Quick Installation
+
+Install the adapter globally or within your Paperclip workspace scope via NPM:
 
 ```bash
 npm install @weslleycapelari/adapter-antigravity-local
+
 ```
 
-### 2. Manual Development Installation
-
-To work on modifications locally, clone the repository and build the distribution assets:
-
-```bash
-# Clone the repository
-git clone https://github.com/weslleycapelari/adapter-antigravity-local.git
-cd adapter-antigravity-local
-
-# Install developer dependencies
-npm install
-
-# Compile TypeScript production files
-npm run build
-```
+For complete installation and configuration instructions, please refer to the full setup guide:
+👉 **[SETUP.md](https://www.google.com/search?q=./SETUP.md)**
 
 ---
 
@@ -62,17 +58,15 @@ npm run build
 2. Navigate to **Settings** ➔ **Adapters** ➔ **Install Custom Adapter**.
 3. Choose the **Local Path** method.
 4. Select the absolute path to this project's root folder:
-   `/home/<user>/projects/adapter-antigravity-local`
+`/home/<user>/projects/adapter-antigravity-local`
 5. Click **Install**. The adapter will automatically load the compiled JavaScript bundle from `./dist/index.js`.
 
----
+### Configuration Schema
 
-## ⚙️ Configuration Schema
-
-When configuring a Paperclip Agent to use the `antigravity_local` adapter, define the following variables in the agent settings panel:
+When configuring a Paperclip Agent, define the following variables in the settings panel:
 
 | Option Key | Type | Description | Default |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `command` | `string` | Binary command executable path or system command name. | `"agy"` |
 | `model` | `string` | Target model profile or custom model name (binds to env). | `"claude-sonnet-4.6-thinking"` |
 | `sandbox` | `boolean` | Enforces strict OS/Terminal sandbox jail isolation. | `false` |
@@ -80,7 +74,29 @@ When configuring a Paperclip Agent to use the `antigravity_local` adapter, defin
 | `timeoutSec` | `number` | Inactivity/run timeout duration in seconds. | `0` (Disabled) |
 | `extraArgs` | `string` | Comma-separated list of custom CLI parameters. | `""` |
 | `envVars` | `string` | Multi-line `KEY=VALUE` environment variables. | `""` |
-| `envBindings`| `object` | Structured credentials mappings and secrets references. | `{}` |
+| `envBindings` | `object` | Structured credentials mappings and secrets references. | `{}` |
+
+---
+
+## 🛠️ Development
+
+To work on modifications locally, clone the repository and build the distribution assets:
+
+```bash
+# Clone and enter the repository
+git clone [https://github.com/weslleycapelari/adapter-antigravity-local.git](https://github.com/weslleycapelari/adapter-antigravity-local.git)
+cd adapter-antigravity-local
+
+# Install developer dependencies
+npm install
+
+# Compile TypeScript production files
+npm run build
+
+# Validate types
+npm run typecheck
+
+```
 
 ---
 
@@ -88,58 +104,49 @@ When configuring a Paperclip Agent to use the `antigravity_local` adapter, defin
 
 We maintain a senior-grade quality gate enforced by **62 unit & integration tests** running on **Vitest**. The test suite is isolated from production compilation bundles.
 
-### Execute the Test Suite
+Execute the Test Suite:
 
 ```bash
 npm test
+
 ```
 
-*Runs 62 tests across CLI color event formatters, UI config builders, session serializers/deserializers, skills symlink managers, and environment probes in less than `0.6s`.*
-
-### TypeScript Validation
-
-Validate all typings and module contracts:
-
-```bash
-npm run typecheck
-```
+*Runs 62 tests across CLI color event formatters, UI config builders, session serializers, skills symlink managers, and environment probes in less than `0.6s`.*
 
 ---
 
-## 🤖 DevOps & CI/CD Pipeline
+## 🚀 DevOps & CI/CD Pipeline
 
-We bundle a production-ready GitHub Action in `.github/workflows/publish.yml` that automates releases:
+We bundle a production-ready GitHub Action (`publish.yml`) that automates releases.
 
-### 1. Automated Triggers
+Whenever you push a version tag starting with `v` (e.g., `v1.0.0`), the pipeline will automatically:
 
-Whenever you push a version tag starting with `v` (e.g., `v1.0.0`), the pipeline:
-1. Performs checkout and sets up Node 20.
-2. Installs clean developer locks (`npm ci`).
-3. Runs the strict compiler typecheck (`npm run typecheck`).
-4. Runs all **62 quality tests** (`npm test`). **Any failure aborts publication.**
-5. Compiles production assets (`npm run build`).
-6. Publishes `@weslleycapelari/adapter-antigravity-local` to the public npm registry.
-7. Creates a formal **GitHub Release** with notes generated automatically.
+1. Setup Node 20 and install clean dependencies (`npm ci`).
+2. Run strict compiler typechecks (`npm run typecheck`).
+3. Run all **62 quality tests**. *Any failure aborts publication.*
+4. Compile production assets.
+5. Publish to the public npm registry.
+6. Create a formal **GitHub Release** with automated notes.
 
-### 2. Secret Settings
+> **Note:** Configure a secret named `NPM_TOKEN` in your GitHub Repository settings with an npm Access Token to allow automated publishing.
 
-For this to execute successfully, configure a secret named `NPM_TOKEN` in your GitHub Repository settings (**Settings ➔ Secrets and variables ➔ Actions**) containing an npm Access Token with publish permissions.
+---
 
-### 3. Publishing steps
+## 📖 Documentation
 
-```bash
-# Tag the new production release
-git tag v1.0.0
+* **[SETUP.md](https://www.google.com/search?q=./SETUP.md)** — Detailed installation, configuration guide, and troubleshooting.
 
-# Push the tag to GitHub to fire CI/CD
-git push origin v1.0.0
-```
+---
+
+## 🙌 Acknowledgements
+
+Special thanks to **Ryan Lee** for testing the Paperclip integration, documenting the installation process, and providing vital feedback on adapter registration and model configuration.
 
 ---
 
 ## 👥 Authors & Maintainers
 
-- Designed, built, and maintained by **Weslley Capelari**.
-- Open-source repository: [GitHub: weslleycapelari/adapter-antigravity-local](https://github.com/weslleycapelari/adapter-antigravity-local).
+* Designed, built, and maintained by **Weslley Capelari**.
+* Open-source repository: [GitHub: weslleycapelari/adapter-antigravity-local](https://github.com/weslleycapelari/adapter-antigravity-local).
 
-License: [MIT](LICENSE) — Feel free to use, modify, and distribute.
+License: **[MIT](https://www.google.com/search?q=LICENSE)** — Feel free to use, modify, and distribute.
