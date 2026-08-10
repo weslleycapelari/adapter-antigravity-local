@@ -115,3 +115,132 @@ export function describeAntigravityFailure(stdout: string, stderr: string): stri
   }
   return `Antigravity run failed: ${lines[0]}`;
 }
+
+/**
+ * Extracts the conversation/session ID from process stdout/stderr.
+ * Inspects NDJSON events (init, step_update, result) as well as text regex fallbacks.
+ *
+ * @param stdout - The process stdout stream content.
+ * @param stderr - The process stderr stream content.
+ * @returns The resolved session ID or null.
+ */
+export function extractAntigravitySessionId(stdout: string, stderr: string): string | null {
+  const combined = `${stdout}\n${stderr}`;
+  const lines = combined.split(/\r?\n/);
+  
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        const convId =
+          parsed.conversation_id ||
+          parsed.session_id ||
+          parsed.init?.conversation_id ||
+          parsed.step_update?.conversation_id ||
+          parsed.result?.conversation_id;
+        if (typeof convId === "string" && convId.trim().length > 0) {
+          return convId.trim();
+        }
+      } catch {
+        // Ignore JSON parse errors
+      }
+    }
+  }
+
+  const regexes = [
+    /conversation[_ -]?id["']?\s*[:=]\s*["']?([a-zA-Z0-9_-]{8,})/i,
+    /session[_ -]?id["']?\s*[:=]\s*["']?([a-zA-Z0-9_-]{8,})/i,
+    /agy\s+(?:-c|--conversation|-r|--resume)\s+([a-zA-Z0-9_-]{8,})/i,
+    /Conversation ID:\s*([a-zA-Z0-9_-]+)/i,
+    /Session ID:\s*([a-zA-Z0-9_-]+)/i,
+    /Resuming conversation:\s*([a-zA-Z0-9_-]+)/i,
+    /Created conversation:\s*([a-zA-Z0-9_-]+)/i,
+  ];
+
+  for (const re of regexes) {
+    const match = re.exec(combined);
+    if (match && match[1]) {
+      return match[1].trim();
+    }
+  }
+
+  return null;
+}
+
+/** Strongly-typed token usage and execution metrics structure. */
+export interface AntigravityExecutionMetrics {
+  usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cachedInputTokens: number;
+  };
+  costUsd: number | null;
+  response: string | null;
+}
+
+/**
+ * Extracts token usage, cost metrics, and response summary from NDJSON events or stdout.
+ *
+ * @param stdout - Process stdout stream content.
+ * @param stderr - Process stderr stream content.
+ * @returns Parsed execution metrics object.
+ */
+export function extractAntigravityExecutionMetrics(stdout: string, stderr: string): AntigravityExecutionMetrics {
+  const metrics: AntigravityExecutionMetrics = {
+    usage: {
+      inputTokens: 0,
+      outputTokens: 0,
+      cachedInputTokens: 0,
+    },
+    costUsd: null,
+    response: null,
+  };
+
+  const combined = `${stdout}\n${stderr}`;
+  const lines = combined.split(/\r?\n/);
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+
+        if (parsed.event === "result" && parsed.result?.response) {
+          metrics.response = String(parsed.result.response);
+        } else if (parsed.response && typeof parsed.response === "string") {
+          metrics.response = parsed.response;
+        }
+
+        const usageObj = parsed.result?.usage || parsed.step_update?.usage || parsed.usage;
+        if (usageObj && typeof usageObj === "object") {
+          if (typeof usageObj.input_tokens === "number") {
+            metrics.usage.inputTokens = Math.max(metrics.usage.inputTokens, usageObj.input_tokens);
+          } else if (typeof usageObj.inputTokens === "number") {
+            metrics.usage.inputTokens = Math.max(metrics.usage.inputTokens, usageObj.inputTokens);
+          }
+
+          if (typeof usageObj.output_tokens === "number") {
+            metrics.usage.outputTokens = Math.max(metrics.usage.outputTokens, usageObj.output_tokens);
+          } else if (typeof usageObj.outputTokens === "number") {
+            metrics.usage.outputTokens = Math.max(metrics.usage.outputTokens, usageObj.outputTokens);
+          }
+
+          const cached = usageObj.cache_read_tokens ?? usageObj.cached_input_tokens ?? usageObj.cachedInputTokens;
+          if (typeof cached === "number") {
+            metrics.usage.cachedInputTokens = Math.max(metrics.usage.cachedInputTokens, cached);
+          }
+        }
+
+        const cost = parsed.result?.cost_usd ?? parsed.cost_usd ?? parsed.costUsd;
+        if (typeof cost === "number") {
+          metrics.costUsd = cost;
+        }
+      } catch {
+        // Ignore JSON parse errors
+      }
+    }
+  }
+
+  return metrics;
+}

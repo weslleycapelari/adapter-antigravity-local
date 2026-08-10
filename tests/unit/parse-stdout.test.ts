@@ -40,4 +40,13 @@ describe("parseAntigravityStdoutLine", () => {
     const entries = parseAntigravityStdoutLine("   ", ts);
     expect(entries).toEqual([]);
   });
+
+  /**
+   * Verifies NDJSON step_update text delta events map as assistant entries.
+   */
+  it("parses NDJSON step_update text delta events correctly", () => {
+    const ndjson = '{"event":"step_update","step_update":{"text_delta":"Hello world"}}';
+    const entries = parseAntigravityStdoutLine(ndjson, ts);
+    expect(entries).toEqual([{ kind: "assistant", ts, text: "Hello world" }]);
+  });
 });

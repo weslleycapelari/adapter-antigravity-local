@@ -13,11 +13,14 @@ export const DEFAULT_ANTIGRAVITY_LOCAL_MODEL = "auto";
 export const models: AntigravityModelDefinition[] = [
   { id: DEFAULT_ANTIGRAVITY_LOCAL_MODEL, label: "Auto (Use global configured default)" },
   { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash (Medium)" },
+  { id: "gemini-3.5-pro", label: "Gemini 3.5 Pro (High)" },
   { id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" },
   { id: "gemini-3.1-pro-low", label: "Gemini 3.1 Pro (Low)" },
   { id: "claude-sonnet-4.6-thinking", label: "Claude Sonnet 4.6 (Thinking)" },
+  { id: "claude-sonnet-4.6-standard", label: "Claude Sonnet 4.6 (Standard)" },
   { id: "claude-opus-4.6-thinking", label: "Claude Opus 4.6 (Thinking)" },
   { id: "gpt-oss-120b", label: "GPT-OSS 120B (Medium)" },
+  { id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium Profile)" },
 ];
 
 export const modelProfiles: AntigravityModelProfileDefinition[] = [

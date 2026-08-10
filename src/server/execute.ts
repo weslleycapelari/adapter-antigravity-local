@@ -38,6 +38,11 @@ import {
   DEFAULT_PAPERCLIP_AGENT_PROMPT_TEMPLATE,
 } from "@paperclipai/adapter-utils/server-utils";
 import { DEFAULT_ANTIGRAVITY_LOCAL_MODEL, SANDBOX_INSTALL_COMMAND } from "../index.js";
+import {
+  extractAntigravityExecutionMetrics,
+  extractAntigravitySessionId,
+  isAntigravityUnknownSessionError,
+} from "./parse.js";
 import { firstNonEmptyLine } from "../utils.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
@@ -128,13 +133,14 @@ function compileAgentPrompt(
 
 /**
  * Generates the clean CLI argument list for spawning the `agy` process.
- * Maps session IDs, prompts, and active workspaces to repeatable arguments.
+ * Maps session IDs, prompts, models, and active workspaces to repeatable arguments.
  * 
  * @param prompt - The compiled orchestrator prompt payload.
  * @param resumeSessionId - Optional session ID to resume (resets turn contexts).
  * @param workspaces - Active Paperclip workspace mappings to register.
  * @param sandbox - Indicates whether OS and terminal sandboxing is enabled.
  * @param extraArgs - Structured list of user-defined CLI arguments to append.
+ * @param model - Optional model selection identifier.
  * @returns An array representing the formatted CLI arguments list.
  */
 function compileAgyArguments(
@@ -142,9 +148,13 @@ function compileAgyArguments(
   resumeSessionId: string | null,
   workspaces: unknown[],
   sandbox: boolean,
-  extraArgs: string[]
+  extraArgs: string[],
+  model?: string,
 ): string[] {
-  const args = ["--print", prompt];
+  const args = ["--print", prompt, "--output-format", "stream-json"];
+  if (model && model !== DEFAULT_ANTIGRAVITY_LOCAL_MODEL) {
+    args.push("--model", model);
+  }
   if (resumeSessionId) {
     args.push("--conversation", resumeSessionId);
   }
@@ -294,7 +304,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
 
   const runAttempt = async (resumeSessionId: string | null) => {
     const workspaces = Array.isArray(context.paperclipWorkspaces) ? context.paperclipWorkspaces : [];
-    const args = compileAgyArguments(prompt, resumeSessionId, workspaces, sandbox, extraArgs);
+    const args = compileAgyArguments(prompt, resumeSessionId, workspaces, sandbox, extraArgs, model);
     
     if (onMeta) {
       await onMeta({
@@ -337,11 +347,18 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     const failed = (proc.exitCode ?? 0) !== 0;
     const rawStdout = proc.stdout.trim();
     const rawStderr = proc.stderr.trim();
+    const unknownSession = failed && isAntigravityUnknownSessionError(rawStdout, rawStderr);
     const fallbackErrorMessage = firstNonEmptyLine(rawStderr) || `Antigravity exited with code ${proc.exitCode ?? -1}`;
 
-    const resolvedSessionParams = sessionId
+    const extractedSessionId = extractAntigravitySessionId(rawStdout, rawStderr);
+    const finalSessionId = sessionId || extractedSessionId;
+
+    const metrics = extractAntigravityExecutionMetrics(rawStdout, rawStderr);
+    const summaryText = metrics.response ?? rawStdout;
+
+    const resolvedSessionParams = finalSessionId
       ? {
-          sessionId,
+          sessionId: finalSessionId,
           cwd: effectiveExecutionCwd,
           ...(asString(workspaceContext.workspaceId, "") ? { workspaceId: workspaceContext.workspaceId } : {}),
           ...(executionTargetIsRemote ? { remoteExecution: adapterExecutionTargetSessionIdentity(runtimeExecutionTarget) } : {}),
@@ -354,19 +371,19 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       timedOut: false,
       errorMessage: failed ? fallbackErrorMessage : null,
       errorCode: null,
-      usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
-      sessionId: sessionId || null,
+      usage: metrics.usage,
+      sessionId: finalSessionId || null,
       sessionParams: resolvedSessionParams,
-      sessionDisplayId: sessionId || null,
+      sessionDisplayId: finalSessionId || null,
       provider: "google",
       biller: "google",
       model,
       billingType: "api",
-      costUsd: null,
+      costUsd: metrics.costUsd,
       resultJson: { raw: rawStdout },
-      summary: failed ? "" : rawStdout,
+      summary: failed ? "" : summaryText,
       question: null,
-      clearSession: false,
+      clearSession: unknownSession,
     };
   } finally {
     await Promise.all([

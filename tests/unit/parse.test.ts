@@ -5,6 +5,8 @@ import {
   detectAntigravityQuotaExhausted,
   isAntigravityTurnLimitResult,
   describeAntigravityFailure,
+  extractAntigravitySessionId,
+  extractAntigravityExecutionMetrics,
 } from "../../src/server/parse.js";
 
 /**
@@ -99,6 +101,42 @@ describe("parse server helpers", () => {
     it("filters out empty lines and returns the first meaningful failure line", () => {
       const complexStderr = "\n\n  \nActual error message here \nAnother trace line";
       expect(describeAntigravityFailure("", complexStderr)).toBe("Antigravity run failed: Actual error message here");
+    });
+  });
+
+  /**
+   * Tests for session ID extraction from NDJSON events and text fallbacks.
+   */
+  describe("extractAntigravitySessionId", () => {
+    it("extracts session ID from NDJSON init event", () => {
+      const ndjson = '{"event":"init","conversation_id":"39d9bdfe-3618-4d2d-ae5d-deee2e075ee2"}\n';
+      expect(extractAntigravitySessionId(ndjson, "")).toBe("39d9bdfe-3618-4d2d-ae5d-deee2e075ee2");
+    });
+
+    it("extracts session ID from plain text fallback", () => {
+      expect(extractAntigravitySessionId("Conversation ID: sess-abc-12345", "")).toBe("sess-abc-12345");
+      expect(extractAntigravitySessionId("", "resume with: agy -c conv-xyz-67890")).toBe("conv-xyz-67890");
+    });
+
+    it("returns null if no session ID is found", () => {
+      expect(extractAntigravitySessionId("random output", "")).toBeNull();
+    });
+  });
+
+  /**
+   * Tests for token metrics and cost extraction from NDJSON events.
+   */
+  describe("extractAntigravityExecutionMetrics", () => {
+    it("extracts token metrics and cost from NDJSON result event", () => {
+      const ndjson = '{"event":"result","result":{"conversation_id":"conv-1","response":"Done!","usage":{"input_tokens":100,"output_tokens":50,"cache_read_tokens":10},"cost_usd":0.002}}\n';
+      const metrics = extractAntigravityExecutionMetrics(ndjson, "");
+      expect(metrics.usage).toEqual({
+        inputTokens: 100,
+        outputTokens: 50,
+        cachedInputTokens: 10,
+      });
+      expect(metrics.costUsd).toBe(0.002);
+      expect(metrics.response).toBe("Done!");
     });
   });
 });

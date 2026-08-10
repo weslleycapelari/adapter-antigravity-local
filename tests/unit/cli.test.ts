@@ -47,4 +47,15 @@ describe("CLI format-event stream printer", () => {
     expect(logSpy).toHaveBeenCalledTimes(1);
     expect(logSpy).toHaveBeenCalledWith(pc.red("fatal: Agent crashed unexpectedly"));
   });
+
+  /**
+   * Asserts NDJSON step_update text delta events are streamed cleanly.
+   */
+  it("streams NDJSON step_update text_delta cleanly to stdout", () => {
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const ndjson = '{"event":"step_update","step_update":{"text_delta":"streaming chunk"}}';
+    printAntigravityStreamEvent(ndjson, false);
+    expect(stdoutSpy).toHaveBeenCalledWith(pc.green("streaming chunk"));
+    stdoutSpy.mockRestore();
+  });
 });

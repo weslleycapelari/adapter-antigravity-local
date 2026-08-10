@@ -21,6 +21,25 @@ export function printAntigravityStreamEvent(raw: string, _debug: boolean): void 
     return;
   }
 
+  // Support structured NDJSON events emitted by --output-format stream-json
+  if (line.startsWith("{") && line.endsWith("}")) {
+    try {
+      const event = JSON.parse(line);
+      if (event.event === "step_update" && event.step_update?.text_delta) {
+        process.stdout.write(pc.green(event.step_update.text_delta));
+        return;
+      }
+      if (event.event === "error" || event.error) {
+        console.log(pc.red(typeof event.error === "string" ? event.error : JSON.stringify(event.error)));
+        return;
+      }
+      // Structural events like init/checkpoint are safely ignored in terminal text stream
+      return;
+    } catch {
+      // Fallback to plain text processing below
+    }
+  }
+
   // Intercept explicit errors printed during stream sessions
   const lowerLine = line.toLowerCase();
   if (lowerLine.startsWith("error:") || lowerLine.startsWith("fatal:")) {

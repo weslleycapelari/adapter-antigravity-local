@@ -90,14 +90,15 @@ describe("antigravity local execution", () => {
     const callArgs = runAdapterExecutionTargetProcess.mock.calls[0] as unknown as [string, unknown, string, string[]];
     const cliArgs = callArgs[3];
     expect(cliArgs).toContain("--print");
+    expect(cliArgs).toContain("--output-format");
+    expect(cliArgs).toContain("stream-json");
     expect(cliArgs).toContain("--dangerously-skip-permissions");
   });
 
   /**
-   * Asserts that model selection is correctly bound to `env.ANTIGRAVITY_MODEL`
-   * and that no invalid `--model` CLI parameters are appended.
+   * Asserts that model selection passes the `--model <model>` CLI flag to `agy`.
    */
-  it("configures model via env.ANTIGRAVITY_MODEL and does not pass --model CLI flag", async () => {
+  it("configures model via --model CLI flag and env.ANTIGRAVITY_MODEL", async () => {
     await execute({
       runId: "run-local-2",
       agent: {
@@ -130,7 +131,9 @@ describe("antigravity local execution", () => {
     const cliArgs = callArgs[3];
     const options = callArgs[4];
 
-    expect(cliArgs).not.toContain("--model");
+    const modelIdx = cliArgs.indexOf("--model");
+    expect(modelIdx).toBeGreaterThan(-1);
+    expect(cliArgs[modelIdx + 1]).toBe("claude-sonnet-4.6-thinking");
     expect(options.env.ANTIGRAVITY_MODEL).toBe("claude-sonnet-4.6-thinking");
   });
 
@@ -181,5 +184,56 @@ describe("antigravity local execution", () => {
     expect(addDirIndices.length).toBe(2);
     expect(cliArgs[addDirIndices[0] + 1]).toBe("/home/user/workspace-1");
     expect(cliArgs[addDirIndices[1] + 1]).toBe("/home/user/workspace-2");
+  });
+
+  /**
+   * Asserts that NDJSON stream events capture generated session ID and usage metrics.
+   */
+  it("captures generated session ID and usage metrics from stream-json output", async () => {
+    runAdapterExecutionTargetProcess.mockImplementationOnce(async () => ({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: '{"event":"init","conversation_id":"39d9bdfe-3618-4d2d-ae5d-deee2e075ee2"}\n{"event":"result","result":{"conversation_id":"39d9bdfe-3618-4d2d-ae5d-deee2e075ee2","response":"Hello!","usage":{"input_tokens":100,"output_tokens":20,"cache_read_tokens":5},"cost_usd":0.001}}\n',
+      stderr: "",
+      pid: 123,
+      startedAt: new Date().toISOString(),
+    }));
+
+    const result = await execute({
+      runId: "run-local-4",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Antigravity CEO",
+        adapterType: "antigravity_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {
+        command: "agy",
+      },
+      context: {
+        paperclipWorkspace: {
+          cwd: "/home/user/workspace",
+          source: "project_primary",
+        },
+      },
+      onLog: async () => {},
+    });
+
+    expect(result.sessionId).toBe("39d9bdfe-3618-4d2d-ae5d-deee2e075ee2");
+    expect(result.summary).toBe("Hello!");
+    expect(result.usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      cachedInputTokens: 5,
+    });
+    expect(result.costUsd).toBe(0.001);
   });
 });
