@@ -12,7 +12,15 @@ export const DEFAULT_ANTIGRAVITY_LOCAL_MODEL = "auto";
 
 export const models: AntigravityModelDefinition[] = [
   { id: DEFAULT_ANTIGRAVITY_LOCAL_MODEL, label: "Auto (Use global configured default)" },
-  { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash (Medium)" },
+  { id: "gemini-3.7-flash-high", label: "Gemini 3.7 Flash (High)" },
+  { id: "gemini-3.7-flash-medium", label: "Gemini 3.7 Flash (Medium)" },
+  { id: "gemini-3.7-flash-low", label: "Gemini 3.7 Flash (Low)" },
+  { id: "gemini-3.6-flash-high", label: "Gemini 3.6 Flash (High)" },
+  { id: "gemini-3.6-flash-medium", label: "Gemini 3.6 Flash (Medium)" },
+  { id: "gemini-3.6-flash-low", label: "Gemini 3.6 Flash (Low)" },
+  { id: "gemini-3.5-flash-high", label: "Gemini 3.5 Flash (High)" },
+  { id: "gemini-3.5-flash-medium", label: "Gemini 3.5 Flash (Medium)" },
+  { id: "gemini-3.5-flash-low", label: "Gemini 3.5 Flash (Low)" },
   { id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" },
   { id: "gemini-3.1-pro-low", label: "Gemini 3.1 Pro (Low)" },
   { id: "claude-sonnet-4.6-thinking", label: "Claude Sonnet 4.6 (Thinking)" },
@@ -24,9 +32,9 @@ export const modelProfiles: AntigravityModelProfileDefinition[] = [
   {
     key: "cheap",
     label: "Cheap",
-    description: "Use Gemini 3.5 Flash for faster, cost-effective routing.",
+    description: "Use Gemini 3.5 Flash (Medium) for faster, cost-effective routing.",
     adapterConfig: {
-      model: "gemini-3.5-flash",
+      model: "gemini-3.5-flash-medium",
     },
     source: "adapter_default",
   },

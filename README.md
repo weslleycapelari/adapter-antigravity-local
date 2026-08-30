@@ -28,7 +28,9 @@ Models are routed dynamically via the `ANTIGRAVITY_MODEL` environment variable (
 
 | Model Family | Supported Profiles & Identifiers |
 |---|---|
-| **Gemini 3.5 Flash** | `gemini-3.5-flash` |
+| **Gemini 3.7 Flash** | `gemini-3.7-flash-high`, `gemini-3.7-flash-medium`, `gemini-3.7-flash-low` |
+| **Gemini 3.6 Flash** | `gemini-3.6-flash-high`, `gemini-3.6-flash-medium`, `gemini-3.6-flash-low` |
+| **Gemini 3.5 Flash** | `gemini-3.5-flash-high`, `gemini-3.5-flash-medium`, `gemini-3.5-flash-low` |
 | **Gemini 3.1 Pro** | `gemini-3.1-pro-high`, `gemini-3.1-pro-low` |
 | **Claude Sonnet 4.6** | `claude-sonnet-4.6-thinking`, `claude-sonnet-4.6-standard` |
 | **Claude Opus 4.6** | `claude-opus-4.6-thinking` |
