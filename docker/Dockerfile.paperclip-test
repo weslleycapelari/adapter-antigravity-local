@@ -1,0 +1,45 @@
+# ==============================================================================
+# Dockerfile: Paperclip AI + Antigravity Local Adapter Validation Image
+# Tests that the packaged adapter installs and registers 100% inside a clean
+# Node.js 24 environment with Paperclip AI extensions structure.
+# ==============================================================================
+
+FROM node:24-alpine
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apk add --no-cache git bash
+
+# Create Paperclip extension and config directories
+RUN mkdir -p /root/.paperclip/extensions
+
+# Copy built distribution tarball
+COPY weslleycapelari-adapter-antigravity-local-*.tgz /tmp/adapter.tgz
+
+# Install the adapter inside the Paperclip extensions folder
+WORKDIR /root/.paperclip/extensions
+RUN npm init -y && \
+    npm install /tmp/adapter.tgz --prefer-offline --no-audit --no-fund
+
+# Register the plugin manifest in ~/.paperclip/adapter-plugins.json
+RUN printf '[\n  {\n    "id": "agy",\n    "type": "antigravity_local",\n    "packageName": "@weslleycapelari/adapter-antigravity-local",\n    "localPath": "/root/.paperclip/extensions/node_modules/@weslleycapelari/adapter-antigravity-local"\n  }\n]\n' > /root/.paperclip/adapter-plugins.json
+
+# Run end-to-end container verification script
+RUN node -e '\
+  import("@weslleycapelari/adapter-antigravity-local").then(({ createServerAdapter, type }) => {\
+    const adapter = createServerAdapter();\
+    if (adapter.type !== "antigravity_local") throw new Error("Adapter type mismatch");\
+    if (!Array.isArray(adapter.models) || adapter.models.length === 0) throw new Error("Missing models");\
+    console.log("----------------------------------------------------------------");\
+    console.log("✅ Paperclip Antigravity Local Adapter successfully verified!");\
+    console.log("   Adapter Type:", adapter.type);\
+    console.log("   Total Models Registered:", adapter.models.length);\
+    console.log("----------------------------------------------------------------");\
+  }).catch((err) => {\
+    console.error("❌ Verification failed:", err);\
+    process.exit(1);\
+  });\
+'
+
+CMD ["node", "-e", "console.log('Paperclip Antigravity Local Adapter container is ready.')"]
