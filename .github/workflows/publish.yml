@@ -35,7 +35,12 @@ jobs:
         run: npm test
 
       - name: Publish Package to NPM Registry
-        run: npm publish --access public
+        run: |
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "::error::NODE_AUTH_TOKEN is empty! Verify secret name is exactly 'NPM_TOKEN' in GitHub Settings -> Secrets -> Actions."
+            exit 1
+          fi
+          npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
