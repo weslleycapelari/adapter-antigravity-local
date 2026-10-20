@@ -147,6 +147,7 @@ export function createServerAdapter(): ServerAdapterModule {
     execute,
     testEnvironment,
     models,
+    supportsLocalAgentJwt: true,
     supportsInstructionsBundle: true,
     instructionsPathKey: "instructionsFilePath",
     agentConfigurationDoc,

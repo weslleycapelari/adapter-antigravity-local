@@ -121,6 +121,9 @@ if (typeof serverAdapter.execute !== "function") {
 if (typeof serverAdapter.testEnvironment !== "function") {
   throw new Error("Missing testEnvironment method on serverAdapter");
 }
+if (serverAdapter.supportsLocalAgentJwt !== true) {
+  throw new Error("Missing supportsLocalAgentJwt on serverAdapter");
+}
 if (!Array.isArray(serverAdapter.models) || serverAdapter.models.length === 0) {
   throw new Error("Missing or empty models list");
 }
