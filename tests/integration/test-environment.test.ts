@@ -78,6 +78,18 @@ describe("testEnvironment probe pipeline", () => {
     expect(result.status).toBe("pass");
     expect(result.checks.some((c) => c.code === "antigravity_hello_probe_passed")).toBe(true);
     expect(runAdapterExecutionTargetProcess).toHaveBeenCalledTimes(1);
+
+    const callArgs = runAdapterExecutionTargetProcess.mock.calls[0] as unknown as [
+      string,
+      unknown,
+      string,
+      string[],
+    ];
+    const cliArgs = callArgs[3];
+    expect(cliArgs).toContain("-p");
+    expect(cliArgs).toContain("--output-format");
+    expect(cliArgs).toContain("stream-json");
+    expect(cliArgs).toContain("--dangerously-skip-permissions");
   });
 
   /**

@@ -3,150 +3,126 @@
 [![npm version](https://img.shields.io/npm/v/@weslleycapelari/adapter-antigravity-local.svg?style=flat-square)](https://www.npmjs.com/package/@weslleycapelari/adapter-antigravity-local)
 [![Build & Test Status](https://img.shields.io/github/actions/workflow/status/weslleycapelari/adapter-antigravity-local/publish.yml?style=flat-square)](https://github.com/weslleycapelari/adapter-antigravity-local/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
-[![Tests Passed](https://img.shields.io/badge/Tests--Passed-62%20/%2062-brightgreen?style=flat-square)](tests)
+[![Tests Passed](https://img.shields.io/badge/Tests--Passed-97%20/%2097-brightgreen?style=flat-square)](tests)
 
-An official-grade, high-performance **Paperclip AI** adapter designed for running **Google Antigravity** (`agy` CLI) agents locally.
+An enterprise-grade, high-performance **Paperclip AI** adapter engineered for modern **Google Antigravity** (`agy` CLI) agents running locally.
 
-This adapter acts as a drop-in, robust, and type-safe replacement for the deprecated Gemini CLI integrations. It allows Paperclip agents to execute prompts through the modern Google Antigravity engine while supporting workspace synchronization, dynamic model selection, environment bindings, and sandboxed execution.
+This adapter serves as a robust, fully typed, production-ready integration supporting the modern Antigravity CLI architecture: real-time `stream-json` event streaming, thinking/reasoning effort controls, tool execution & MCP tracking, subagent lifecycle observation, intelligent multi-account quota pooling, rolling rate-limit window accounting, automatic 429 failover, and Windows-friendly non-admin junction symlinks.
 
 ---
 
 ## ⚡ Key Features
 
-- **🚀 Native Go CLI Performance**: Spawns the local `agy` binary with fast startup times, low system footprint, and real-time terminal stdout streaming.
-- **📂 Multi-Workspace Sync**: Automatically registers and mounts multiple active Paperclip workspaces into `agy` using repeatable `--add-dir <cwd>` arguments.
-- **⚙️ Headless Resiliency**: Enforces unattended command executions with `--dangerously-skip-permissions` to bypass OS prompt gates in headless containers.
-- **🔒 Isolated Sandboxing**: Enforces strict execution limits and file-system restrictions by appending the `--sandbox` parameter.
-- **🛠️ Self-Testing Diagnostics**: Bundles the `testEnvironment` probe checking command availability, workspace permissions, environment variables, and live API credentials via an active "hello" telemetry probe.
-- **🛡️ Edge Case Mitigation**: Built-in regex parsers resistant to irregular spacing, multiline empty logs, case-insensitive outputs, and rate limits (HTTP 429).
+- **🚀 Modern Stream-JSON Telemetry**: Native parsing for `stream-json` events (`init`, `step_update`, `tool_call`, `tool_result`, `agent_response` with text deltas, `thinking` with reasoning deltas, `subagent_info`, and `result`).
+- **🧠 Reasoning / Thinking Effort Control**: Full support for `--effort` levels (`low`, `medium`, `high`, `xhigh`, `max`), mapping directly to Antigravity's thinking models.
+- **🔄 Multi-Account Quota Pooling**: Intelligent profile pool routing (`account-1`, `account-2`, etc.) with automatic rotation, live Google Cloud Code API quota introspection, 5-hour and 7-day rolling window ledgers, and offline brain transcript usage scanners.
+- **🛡️ Auto-Recovery & 429 Failover**: Transparent retry with fresh session handoff on expired/corrupted conversations, and automatic rotation to secondary account candidates when hitting rate limits.
+- **🛠️ Tools, MCP & Subagent Lifecycle**: Real-time transcript tracking for native tools (`run_command`, `read_file`, `edit_file`, `web_search`), Model Context Protocol (MCP) servers, and hierarchical subagent executions (`invoke_subagent`).
+- **📂 Modern Skills Management**: Automatically mounts Paperclip skills to `~/.gemini/antigravity-cli/skills` using Windows directory junctions (no admin rights needed) or Unix symlinks.
+- **📊 Progressive Token Checkpoints**: Emits incremental token usage (`input_tokens`, `output_tokens`, `cache_read_tokens`) and USD cost estimates directly to Paperclip during execution.
+- **🧪 Zero-Dependency Diagnostics**: Self-testing `testEnvironment` probe validating executable presence, directory permissions, API keys, and active hello probe without depending on Unix-only tools like `which`.
 
 ---
 
 ## 🤖 Supported Models
 
-Models are routed dynamically via the `ANTIGRAVITY_MODEL` environment variable (rather than invalid CLI flags).
+Models are passed directly via the `--model` CLI argument with intelligent alias resolution and leadership vs. worker role routing.
 
-| Model Family | Supported Profiles & Identifiers |
-|---|---|
-| **Gemini 3.5 Flash** | `gemini-3.5-flash` |
-| **Gemini 3.1 Pro** | `gemini-3.1-pro-high`, `gemini-3.1-pro-low` |
-| **Claude Sonnet 4.6** | `claude-sonnet-4.6-thinking`, `claude-sonnet-4.6-standard` |
-| **Claude Opus 4.6** | `claude-opus-4.6-thinking` |
-| **GPT-OSS 120B** | `gpt-oss-120b-medium` |
+| Model Identifier | Display Label | Performance Tier / Family |
+|---|---|---|
+| `inherit` | Auto (Inherit) | Dynamically inherits system or parent model |
+| `gemini-4-argon-high` | Gemini 4 Argon (High) | Flagship reasoning & leadership model |
+| `gemini-4-argon-medium` | Gemini 4 Argon (Medium) | Balanced flagship reasoning model |
+| `gemini-4-argon-low` | Gemini 4 Argon (Low) | Fast flagship model |
+| `gemini-3.8-flash-high` | Gemini 3.8 Flash (High) | High-accuracy fast worker model |
+| `gemini-3.8-flash-medium` | Gemini 3.8 Flash (Medium) | Standard fast worker model |
+| `gemini-3.8-flash-low` | Gemini 3.8 Flash (Low) | Ultra-lightweight subagent model |
+| `gemini-3.1-pro-high` | Gemini 3.1 Pro (High) | Deep coding & architectural reasoning |
+| `claude-opus-5-5-high` | Claude Opus 5.5 (High) | Highest capability complex reasoning |
+| `claude-opus-5-5-medium` | Claude Opus 5.5 (Medium) | Balanced heavy reasoning |
+| `claude-opus-5-5-low` | Claude Opus 5.5 (Low) | Fast reasoning tier |
+| `claude-sonnet-5-5-high` | Claude Sonnet 5.5 (High) | Superior code synthesis & tool execution |
+| `claude-sonnet-5-5-medium` | Claude Sonnet 5.5 (Medium) | General development worker model |
+| `claude-sonnet-5-5-low` | Claude Sonnet 5.5 (Low) | Fast coding assistant |
+| `gpt-oss-120b-medium` | GPT-OSS 120B (Medium) | Open-weights 120B reasoning tier |
 
-> *Note: Model availability depends on your local Antigravity installation and configuration.*
+### Backward-Compatible Aliases
+
+The adapter automatically normalizes legacy aliases:
+- `pro` ➔ `gemini-4-argon-high`
+- `flash` ➔ `gemini-3.8-flash-medium`
+- `flash_lite` ➔ `gemini-3.8-flash-low`
 
 ---
 
 ## 📦 Quick Installation
 
-Install the adapter globally or within your Paperclip workspace scope via NPM:
+Install within your Paperclip extensions directory via NPM:
 
 ```bash
+cd ~/.paperclip/extensions
 npm install @weslleycapelari/adapter-antigravity-local
-
 ```
 
-For complete installation and configuration instructions, please refer to the full setup guide:
+For comprehensive installation and configuration guides, check:
 👉 **[SETUP.md](./SETUP.md)**
 
 ---
 
-## 🔌 Linking in the Paperclip Web UI
-
-1. Open your **Paperclip Web Console**.
-2. Navigate to **Settings** ➔ **Adapters** ➔ **Install Custom Adapter**.
-3. Choose the **Local Path** method.
-4. Select the absolute path to this project's root folder:
-`/home/<user>/projects/adapter-antigravity-local`
-5. Click **Install**. The adapter will automatically load the compiled JavaScript bundle from `./dist/index.js`.
+## 🔌 Paperclip Configuration
 
 ### Configuration Schema
 
-When configuring a Paperclip Agent, define the following variables in the settings panel:
+When configuring a Paperclip Agent, the following options are available:
 
 | Option Key | Type | Description | Default |
 | --- | --- | --- | --- |
-| `command` | `string` | Binary command executable path or system command name. | `"agy"` |
-| `model` | `string` | Target model profile or custom model name (binds to env). | `"claude-sonnet-4.6-thinking"` |
-| `sandbox` | `boolean` | Enforces strict OS/Terminal sandbox jail isolation. | `false` |
-| `cwd` | `string` | Absolute working directory context path fallback. | `process.cwd()` |
-| `timeoutSec` | `number` | Inactivity/run timeout duration in seconds. | `0` (Disabled) |
-| `extraArgs` | `string` | Comma-separated list of custom CLI parameters. | `""` |
-| `envVars` | `string` | Multi-line `KEY=VALUE` environment variables. | `""` |
-| `envBindings` | `object` | Structured credentials mappings and secrets references. | `{}` |
+| `command` | `string` | Antigravity executable path or command name. | `"agy"` |
+| `model` | `string` | Model identifier (e.g., `gemini-4-argon-high`, `claude-opus-5-5-high`). | `"inherit"` |
+| `effort` | `string` | Reasoning effort: `low`, `medium`, `high`, `xhigh`, `max`. | `""` |
+| `accountProfile` | `string` | Target account profile for multi-account pool routing (`account-1`, `account-2`). | `""` |
+| `dangerouslySkipPermissions` | `boolean` | Auto-approves tool executions in headless runs. | `true` |
+| `cwd` | `string` | Absolute working directory fallback. | `process.cwd()` |
+| `timeoutSec` | `number` | Process timeout duration in seconds (0 = disabled). | `0` |
+| `graceSec` | `number` | Grace period in seconds before SIGKILL on timeout. | `15` |
+| `extraArgs` | `string[]` | Additional command line arguments passed to `agy`. | `[]` |
+| `env` | `object` | Key-value dictionary of environment variable bindings. | `{}` |
 
 ---
 
-## 🛠️ Development
-
-To work on modifications locally, clone the repository and build the distribution assets:
+## 🛠️ Development & Quality Assurance
 
 ```bash
-# Clone and enter the repository
+# Clone the repository
 git clone https://github.com/weslleycapelari/adapter-antigravity-local.git
 cd adapter-antigravity-local
 
-# Install developer dependencies
+# Install dependencies
 npm install
 
-# Compile TypeScript production files
+# Compile TypeScript production bundles
 npm run build
 
-# Validate types
+# Validate TypeScript type consistency (0 errors)
 npm run typecheck
 
-```
-
----
-
-## 🧪 Architecture Quality & Testing (TDD)
-
-We maintain a senior-grade quality gate enforced by **62 unit & integration tests** running on **Vitest**. The test suite is isolated from production compilation bundles.
-
-Execute the Test Suite:
-
-```bash
+# Run full Vitest test suite (97 tests)
 npm test
-
 ```
 
-*Runs 62 tests across CLI color event formatters, UI config builders, session serializers, skills symlink managers, and environment probes in less than `0.6s`.*
-
----
-
-## 🚀 DevOps & CI/CD Pipeline
-
-We bundle a production-ready GitHub Action (`publish.yml`) that automates releases.
-
-Whenever you push a version tag starting with `v` (e.g., `v1.0.0`), the pipeline will automatically:
-
-1. Setup Node 20 and install clean dependencies (`npm ci`).
-2. Run strict compiler typechecks (`npm run typecheck`).
-3. Run all **62 quality tests**. *Any failure aborts publication.*
-4. Compile production assets.
-5. Publish to the public npm registry.
-6. Create a formal **GitHub Release** with automated notes.
-
-> **Note:** Configure a secret named `NPM_TOKEN` in your GitHub Repository settings with an npm Access Token to allow automated publishing.
-
----
-
-## 📖 Documentation
-
-* **[SETUP.md](./SETUP.md)** — Detailed installation, configuration guide, and troubleshooting.
-
----
-
-## 🙌 Acknowledgements
-
-Special thanks to **Ryan Lee** for testing the Paperclip integration, documenting the installation process, and providing vital feedback on adapter registration and model configuration.
+### Test Suite Coverage (97 Tests Passing)
+- **Parse & Stream**: Stream-JSON incremental parsing, thinking deltas, tool invocation & results, subagent info, reset time extraction, rate-limit & auth error detection.
+- **UI & CLI Formatters**: ANSI colorized event terminal formatting and transcript entry construction.
+- **Quota & Pooling**: 5h/7d rolling window calculations, Cloud Code API OAuth credential refresh, transcript usage scanners, candidate plan builder.
+- **Skills Management**: Windows junction symlink creation, removal of stale links, path normalization.
+- **Execution Engine**: End-to-end execution, session continuation (`--conversation`), unrecoverable session auto-recovery, timeout handling, usage checkpoint streaming.
+- **Diagnostics**: Environment test probe pipeline with hello telemetry and sandbox checks.
 
 ---
 
 ## 👥 Authors & Maintainers
 
-* Designed, built, and maintained by **Weslley Capelari**.
-* Open-source repository: [GitHub: weslleycapelari/adapter-antigravity-local](https://github.com/weslleycapelari/adapter-antigravity-local).
+- Designed, built, and maintained by **Weslley Capelari**.
+- Open-source repository: [GitHub: weslleycapelari/adapter-antigravity-local](https://github.com/weslleycapelari/adapter-antigravity-local).
 
 License: **[MIT](LICENSE)** — Feel free to use, modify, and distribute.

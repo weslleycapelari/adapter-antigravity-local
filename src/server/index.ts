@@ -1,14 +1,50 @@
 /**
  * @fileoverview Server entry point and session codec for the Antigravity local CLI adapter.
- * Handles module exports and serializes/deserializes session parameters according to Paperclip specifications.
- * 
+ * Handles module exports, config schema, quota management, skills sync, and serializes/deserializes session parameters.
+ *
  * @copyright Antigravity Adapter Contributors
  * @license MIT
  */
 
 export { execute } from "./execute.js";
-export { listAntigravitySkills, syncAntigravitySkills } from "./skills.js";
+export { createUsageCheckpointLog, type UsageCheckpointLog } from "./usage-checkpoint.js";
+export { getConfigSchema } from "./config-schema.js";
+export { listAntigravitySkills, syncAntigravitySkills, resolveAntigravityDesiredSkillNames } from "./skills.js";
 export { testEnvironment } from "./test.js";
+export {
+  getQuotaWindows,
+  getAntigravityAccountQuota,
+  getAllAntigravityAccountQuotas,
+  selectAvailableAntigravityAccount,
+  selectAntigravityExecutionPlan,
+  classifyAntigravityModelFamily,
+  isAgentLeadershipRole,
+  DEFAULT_LEADERSHIP_ARGON_MODEL,
+  DEFAULT_WORKER_GEMINI_MODEL,
+  DEFAULT_WORKER_CLAUDE_MODEL,
+  DEFAULT_WORKER_GPT_FALLBACK_MODEL,
+  DEFAULT_LEADERSHIP_CLAUDE_FALLBACK_MODEL,
+  DEFAULT_LEADERSHIP_GEMINI_FALLBACK_MODEL,
+  recordAntigravityRunUsage,
+  setAntigravityCooldown,
+  clearAntigravityCooldown,
+  getAntigravityAccountCredentialsSync,
+  readAndRefreshAntigravityCredentials,
+  fetchLiveAntigravityAccountQuota,
+  scanAccountTranscriptStats,
+  resolveRealHomeDir,
+  getAntigravityProfileHome,
+  prepareAntigravityAccountProfileHome,
+} from "./quota.js";
+export {
+  parseAntigravityStreamJson,
+  createAntigravityStreamParser,
+  isAntigravityRateLimited,
+  detectAntigravityAuthRequired,
+  extractAntigravityResetTime,
+  isAntigravitySessionUnrecoverable,
+  describeAntigravityFailure,
+} from "./parse.js";
 
 import type { AdapterSessionCodec } from "@paperclipai/adapter-utils";
 import type { AntigravitySessionParams } from "../types.js";
@@ -26,7 +62,7 @@ function readNonEmptyString(value: unknown): string | null {
 
 /**
  * Parses and extracts normalized session parameters from a raw dictionary object.
- * Applies fallback resolution for various naming patterns (e.g., snake_case, camelCase).
+ * Applies fallback resolution for various naming patterns (e.g. conversationId, sessionId, snake_case).
  *
  * @param record - The raw record containing potential session parameters.
  * @returns The normalized session parameters, or null if a session ID could not be resolved.
@@ -35,6 +71,8 @@ export function parseSessionParams(record: Record<string, unknown>): Antigravity
   const sessionId =
     readNonEmptyString(record.sessionId) ??
     readNonEmptyString(record.session_id) ??
+    readNonEmptyString(record.conversationId) ??
+    readNonEmptyString(record.conversation_id) ??
     readNonEmptyString(record.sessionID);
 
   if (!sessionId) {
@@ -45,6 +83,10 @@ export function parseSessionParams(record: Record<string, unknown>): Antigravity
     readNonEmptyString(record.cwd) ??
     readNonEmptyString(record.workdir) ??
     readNonEmptyString(record.folder);
+
+  const accountProfile =
+    readNonEmptyString(record.accountProfile) ??
+    readNonEmptyString(record.account_profile);
 
   const workspaceId =
     readNonEmptyString(record.workspaceId) ??
@@ -58,19 +100,26 @@ export function parseSessionParams(record: Record<string, unknown>): Antigravity
     readNonEmptyString(record.repoRef) ??
     readNonEmptyString(record.repo_ref);
 
+  const remoteExecution =
+    typeof record.remoteExecution === "object" && record.remoteExecution !== null && !Array.isArray(record.remoteExecution)
+      ? (record.remoteExecution as Record<string, unknown>)
+      : null;
+
   return {
     sessionId,
     ...(cwd ? { cwd } : {}),
+    ...(accountProfile ? { accountProfile } : {}),
     ...(workspaceId ? { workspaceId } : {}),
     ...(repoUrl ? { repoUrl } : {}),
     ...(repoRef ? { repoRef } : {}),
+    ...(remoteExecution ? { remoteExecution } : {}),
   };
 }
 
 /**
  * Strongly-typed adapter session codec.
  * Encapsulates the serialization, deserialization, and identification logics
- * required by the Paperclip platform to resume agent conversations.
+ * required by the Paperclip platform to resume agent conversations across heartbeats.
  */
 export const sessionCodec: AdapterSessionCodec = {
   /**
@@ -113,6 +162,8 @@ export const sessionCodec: AdapterSessionCodec = {
     return (
       readNonEmptyString(params.sessionId) ??
       readNonEmptyString(params.session_id) ??
+      readNonEmptyString(params.conversationId) ??
+      readNonEmptyString(params.conversation_id) ??
       readNonEmptyString(params.sessionID)
     );
   },

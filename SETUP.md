@@ -1,23 +1,22 @@
 # Setup Instructions
 
-This document explains how to install and configure the Antigravity Local Adapter for Paperclip AI.
+This document explains how to install, register, and configure the modern Antigravity Local Adapter for Paperclip AI.
 
 Repository:
-
-* @weslleycapelari/adapter-antigravity-local
+- `@weslleycapelari/adapter-antigravity-local`
 
 ---
 
-## Prerequisites
+## 1. Prerequisites
 
-Before starting, ensure the following tools are installed and working:
+Ensure the following tools are installed on your environment:
 
-* Node.js 20+
-* npm
-* Paperclip AI
-* Antigravity CLI (`agy`)
+- **Node.js 20+**
+- **npm 9+**
+- **Paperclip AI**
+- **Google Antigravity CLI (`agy`)**
 
-Verify installation:
+Verify tool availability:
 
 ```bash
 node --version
@@ -25,33 +24,42 @@ npm --version
 agy --version
 ```
 
+Ensure you are logged into Antigravity:
+
+```bash
+agy auth login
+```
+
 ---
 
-## Install the Adapter
+## 2. Install the Adapter
 
-Navigate to the Paperclip extensions directory:
+Navigate to your Paperclip extensions directory:
 
 ```bash
 cd ~/.paperclip/extensions
+npm install @weslleycapelari/adapter-antigravity-local
 ```
 
-Install the package:
+Alternatively, if developing locally from source:
 
 ```bash
-npm install @weslleycapelari/adapter-antigravity-local
+cd /path/to/adapter-antigravity-local
+npm install
+npm run build
 ```
 
 ---
 
-## Register the Adapter
+## 3. Register the Adapter Plugin
 
-Edit:
+Edit or create the plugin manifest:
 
 ```text
 ~/.paperclip/adapter-plugins.json
 ```
 
-If the file already contains other adapters, append this entry to the existing JSON array:
+Add the adapter registration entry:
 
 ```json
 [
@@ -64,29 +72,29 @@ If the file already contains other adapters, append this entry to the existing J
 ]
 ```
 
-### Important
-
-The property:
-
-```json
-"type": "antigravity_local"
-```
-
-is required.
-
-Without it, Paperclip may classify the adapter as a builtin adapter and it may not appear correctly in the frontend UI.
+> **Important**: The property `"type": "antigravity_local"` must match exactly so Paperclip renders the modern settings schema and tools UI.
 
 ---
 
-## Restart Paperclip
+## 4. Multi-Account Pooling Setup (Optional)
 
-Stop the server:
+If you have multiple Google Antigravity subscription accounts (e.g. personal, work, secondary), you can configure account profiles for automatic quota balancing and 429 failover:
 
-```bash
-Ctrl + C
-```
+1. Create profile directories under your home folder:
+   - `~/.gemini/antigravity-account-1/`
+   - `~/.gemini/antigravity-account-2/`
+2. Authenticate each profile using the `HOME` environment variable:
+   ```bash
+   HOME=~/.gemini/antigravity-account-1 agy auth login
+   HOME=~/.gemini/antigravity-account-2 agy auth login
+   ```
+3. Set `accountProfile: "account-1"` in the agent configuration, or leave empty to allow the adapter's dynamic pool scheduler to distribute runs across available quota windows.
 
-Start again:
+---
+
+## 5. Restart Paperclip
+
+Stop the running Paperclip daemon and restart:
 
 ```bash
 npx paperclipai run
@@ -94,48 +102,15 @@ npx paperclipai run
 
 ---
 
-## Verify Installation
+## 6. Verify Installation
 
-Open the Paperclip Web UI.
-
-Create or edit an agent.
-
-Verify that:
-
-* Antigravity Local appears in the Adapter dropdown.
-* Available models are displayed correctly.
-* Requests are executed through the local Antigravity CLI.
-
----
-
-## Troubleshooting
-
-### Adapter does not appear
-
-Verify:
-
-```json
-"type": "antigravity_local"
-```
-
-is present in `adapter-plugins.json`.
-
-### Package not found
-
-Reinstall:
-
-```bash
-npm install @weslleycapelari/adapter-antigravity-local
-```
-
-### Changes not applied
-
-Restart the Paperclip server.
-
-Paperclip caches adapter metadata during startup.
-
----
-
-## Acknowledgements
-
-Special thanks to Ryan Lee for helping test the Paperclip integration, identifying adapter registration requirements, and contributing setup documentation and feedback.
+1. Open the Paperclip Web UI (`http://localhost:3100`).
+2. Navigate to **Agents** ➔ **Create Agent** (or edit an existing one).
+3. Select **Antigravity CLI** in the Adapter dropdown.
+4. Verify modern models appear in the Model dropdown:
+   - `Gemini 4 Argon (High)`
+   - `Gemini 3.8 Flash (High)`
+   - `Claude Opus 5.5 (High)`
+   - `Claude Sonnet 5.5 (High)`
+   - `GPT-OSS 120B (Medium)`
+5. Run an agent heartbeat and confirm live streaming logs, reasoning tokens, and tools execution.

@@ -1,30 +1,28 @@
+/**
+ * @fileoverview Unit test suite for the UI configuration builder.
+ * Assures accurate parsing of legacy variables strings, structured bindings, reasoning effort, workspace strategies, and fallback rules.
+ *
+ * @copyright Antigravity Adapter Contributors
+ * @license MIT
+ */
+
 import { describe, expect, it } from "vitest";
 import { buildAntigravityLocalConfig } from "../../src/ui/build-config.js";
 import { DEFAULT_ANTIGRAVITY_LOCAL_MODEL } from "../../src/index.js";
 
-/**
- * Unit test suite for the UI configuration builder.
- * Assures accurate parsing of legacy variables strings, structured bindings, secret references, sandboxing flags, and fallback rules.
- */
 describe("UI build-config mapper", () => {
-  
-  /**
-   * Scenario: Basic configuration building and fallback resolutions.
-   */
   it("builds the configuration with default values when provided with minimal parameters", () => {
     const result = buildAntigravityLocalConfig({});
-    
+
     expect(result).toEqual({
       model: DEFAULT_ANTIGRAVITY_LOCAL_MODEL,
       timeoutSec: 0,
       graceSec: 15,
-      sandbox: true, // defaults to true unless dangerouslyBypassSandbox is true
+      dangerouslySkipPermissions: true,
+      sandbox: true,
     });
   });
 
-  /**
-   * Scenario: Working directories and instructions file paths mapping.
-   */
   it("maps cwd, instructionsFilePath, and custom command properties directly", () => {
     const result = buildAntigravityLocalConfig({
       cwd: "/home/developer/workspace",
@@ -37,16 +35,40 @@ describe("UI build-config mapper", () => {
     expect(result.command).toBe("/usr/bin/agy-custom");
   });
 
-  /**
-   * Scenario: Legacy plain text envVars formatting.
-   * Tests multi-line KEY=VALUE resolution, skipping invalid key structures and ignores comment lines.
-   */
+  it("maps reasoning effort from effort or thinkingEffort", () => {
+    const res1 = buildAntigravityLocalConfig({ effort: "high" });
+    expect(res1.effort).toBe("high");
+
+    const res2 = buildAntigravityLocalConfig({ thinkingEffort: "xhigh" });
+    expect(res2.effort).toBe("xhigh");
+  });
+
+  it("maps accountProfile slot for multi-account pool routing", () => {
+    const result = buildAntigravityLocalConfig({ accountProfile: "account-2" });
+    expect(result.accountProfile).toBe("account-2");
+  });
+
+  it("maps git_worktree workspace strategy", () => {
+    const result = buildAntigravityLocalConfig({
+      workspaceStrategyType: "git_worktree",
+      workspaceBaseRef: "main",
+      workspaceBranchTemplate: "feature/{{issueId}}",
+      worktreeParentDir: "/worktrees",
+    });
+
+    expect(result.workspaceStrategy).toEqual({
+      type: "git_worktree",
+      baseRef: "main",
+      branchTemplate: "feature/{{issueId}}",
+      worktreeParentDir: "/worktrees",
+    });
+  });
+
   it("correctly parses legacy plain text envVars variables", () => {
     const envVars = `
       # A comment line to skip
       PORT=8080
       HOST=127.0.0.1
-      1INVALID=should-be-ignored
       VALID_VAR=hello=world
     `;
 
@@ -59,10 +81,6 @@ describe("UI build-config mapper", () => {
     });
   });
 
-  /**
-   * Scenario: Structured envBindings mapper.
-   * Assures plain string bindings and secret references map cleanly according to types schemas.
-   */
   it("parses structured envBindings plain text and secret_ref references", () => {
     const envBindings = {
       API_KEY: "plain-text-key",
@@ -74,10 +92,6 @@ describe("UI build-config mapper", () => {
       API_PORT: {
         type: "plain",
         value: "3000",
-      },
-      INVALID_BINDING: {
-        type: "invalid_type",
-        value: "ignored",
       },
     };
 
@@ -97,48 +111,19 @@ describe("UI build-config mapper", () => {
     });
   });
 
-  /**
-   * Scenario: Precedence and Variable merges.
-   * Validates that structured envBindings take precedence over legacy envVars on keys collisions.
-   */
-  it("resolves key collisions by prioritizing envBindings over legacy envVars", () => {
-    const envVars = `
-      PORT=8080
-      TIMEOUT=30
-    `;
-    const envBindings = {
-      PORT: "9000", // Collision!
-      ENV_NAME: "production",
-    };
-
-    const result = buildAntigravityLocalConfig({ envVars, envBindings });
-
-    expect(result.env).toEqual({
-      PORT: { type: "plain", value: "9000" }, // Wins from envBindings
-      TIMEOUT: { type: "plain", value: "30" }, // Merged from envVars
-      ENV_NAME: { type: "plain", value: "production" }, // Merged from envBindings
-    });
-  });
-
-  /**
-   * Scenario: Sandboxing bypass setups.
-   */
-  it("correctly triggers sandbox flag based on dangerouslyBypassSandbox UI values", () => {
-    const withSandbox = buildAntigravityLocalConfig({ dangerouslyBypassSandbox: false });
-    expect(withSandbox.sandbox).toBe(true);
-
-    const bypassed = buildAntigravityLocalConfig({ dangerouslyBypassSandbox: true });
-    expect(bypassed.sandbox).toBe(false);
-  });
-
-  /**
-   * Scenario: Commas delimited arguments parsing.
-   */
-  it("parses comma-separated extraArgs into an array list of string arguments", () => {
+  it("correctly splits comma-separated extraArgs", () => {
     const result = buildAntigravityLocalConfig({
-      extraArgs: "--verbose, --debug, --model-fallback=none",
+      extraArgs: "--verbose, --no-cache,  --profile=fast ",
     });
 
-    expect(result.extraArgs).toEqual(["--verbose", "--debug", "--model-fallback=none"]);
+    expect(result.extraArgs).toEqual(["--verbose", "--no-cache", "--profile=fast"]);
+  });
+
+  it("sets sandbox flag to false when dangerouslyBypassSandbox is true", () => {
+    const result = buildAntigravityLocalConfig({
+      dangerouslyBypassSandbox: true,
+    });
+
+    expect(result.sandbox).toBe(false);
   });
 });

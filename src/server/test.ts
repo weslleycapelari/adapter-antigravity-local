@@ -31,7 +31,12 @@ import {
   resolveAdapterExecutionTargetCwd,
 } from "@paperclipai/adapter-utils/execution-target";
 import { DEFAULT_ANTIGRAVITY_LOCAL_MODEL, SANDBOX_INSTALL_COMMAND } from "../index.js";
-import { detectAntigravityAuthRequired, detectAntigravityQuotaExhausted } from "./parse.js";
+import {
+  detectAntigravityAuthRequired,
+  detectAntigravityQuotaExhausted,
+  isAntigravityRateLimited,
+  parseAntigravityStreamJson,
+} from "./parse.js";
 import { firstNonEmptyLine, commandLooksLike, isNonEmptyString } from "../utils.js";
 
 /**
@@ -197,8 +202,13 @@ async function performHelloTelemetryProbe(
     return asStringArray(config.args);
   })();
 
-  const args = ["--print", "Respond with hello."];
-  args.push("--dangerously-skip-permissions");
+  const args = [
+    "-p",
+    "Respond with hello.",
+    "--output-format",
+    "stream-json",
+    "--dangerously-skip-permissions",
+  ];
   if (sandbox) {
     args.push("--sandbox");
   }
@@ -221,18 +231,21 @@ async function performHelloTelemetryProbe(
   );
   
   const detail = summarizeProbeDetail(probe.stdout, probe.stderr);
+  const parsedStream = parseAntigravityStreamJson(probe.stdout);
   
   const authMeta = detectAntigravityAuthRequired({
     stdout: probe.stdout,
     stderr: probe.stderr,
   });
   
-  const quotaMeta = detectAntigravityQuotaExhausted({
-    stdout: probe.stdout,
-    stderr: probe.stderr,
-  });
+  const isRateLimited =
+    isAntigravityRateLimited(probe.stdout, probe.stderr) ||
+    detectAntigravityQuotaExhausted({
+      stdout: probe.stdout,
+      stderr: probe.stderr,
+    }).exhausted;
 
-  if (quotaMeta.exhausted) {
+  if (isRateLimited) {
     checks.push({
       code: "antigravity_hello_probe_quota_exhausted",
       level: "warn",
@@ -248,7 +261,7 @@ async function performHelloTelemetryProbe(
       hint: "Retry the probe. If this persists, verify Antigravity can run manually.",
     });
   } else if ((probe.exitCode ?? 1) === 0) {
-    const summary = probe.stdout.trim().toLowerCase();
+    const summary = (parsedStream.summary || probe.stdout).trim().toLowerCase();
     const hasHello = summary.includes("hello") || summary.includes("olá");
     
     checks.push({

@@ -1,10 +1,10 @@
 {
   "name": "@weslleycapelari/adapter-antigravity-local",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "license": "MIT",
   "homepage": "https://github.com/weslleycapelari/adapter-antigravity-local",
   "scripts": {
-    "build": "tsc && cp package.json dist/",
+    "build": "tsc",
     "clean": "rm -rf dist",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -48,16 +48,18 @@
     "types": "./dist/index.d.ts"
   },
   "files": [
-    "dist",
-    "skills"
+    "dist"
   ],
   "dependencies": {
-    "@paperclipai/adapter-utils": "^2026.525.0",
+    "@paperclipai/adapter-utils": "^2026.1012.0",
     "picocolors": "^1.1.1"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",
     "typescript": "^5.7.3",
-    "vitest": "^4.1.7"
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }

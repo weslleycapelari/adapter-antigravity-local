@@ -1,377 +1,852 @@
+/**
+ * @fileoverview Core execution engine for Google Antigravity local CLI integrations.
+ * Decomposes process spawning, multi-account routing, stream telemetry, token checkpoints,
+ * tools/MCP tracking, rate-limit failovers, and autonomous error recovery into a robust pipeline.
+ *
+ * @copyright Antigravity Adapter Contributors
+ * @license MIT
+ */
+
+import { createProviderStoppedBoundary } from "@paperclipai/adapter-utils/provider-stopped-boundary";
+import { createUsageCheckpointLog } from "./usage-checkpoint.js";
+import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type {
-  AdapterExecutionContext,
-  AdapterExecutionResult,
-  AdapterAgent,
-} from "@paperclipai/adapter-utils";
-import type { AdapterExecutionTarget } from "@paperclipai/adapter-utils/execution-target";
-import {
-  adapterExecutionTargetIsRemote,
-  adapterExecutionTargetRemoteCwd,
-  overrideAdapterExecutionTargetRemoteCwd,
-  adapterExecutionTargetSessionIdentity,
-  adapterExecutionTargetSessionMatches,
-  adapterExecutionTargetUsesPaperclipBridge,
-  describeAdapterExecutionTarget,
-  ensureAdapterExecutionTargetCommandResolvable,
-  prepareAdapterExecutionTargetRuntime,
-  readAdapterExecutionTarget,
-  resolveAdapterExecutionTargetTimeoutSec,
-  resolveAdapterExecutionTargetCommandForLogs,
-  runAdapterExecutionTargetProcess,
-  startAdapterExecutionTargetPaperclipBridge,
-} from "@paperclipai/adapter-utils/execution-target";
+import type { AdapterExecutionContext, AdapterExecutionResult } from "@paperclipai/adapter-utils";
 import {
   asBoolean,
   asNumber,
   asString,
   asStringArray,
   buildPaperclipEnv,
+  buildRuntimeToolsEnv,
   buildInvocationEnvForLogs,
   ensureAbsoluteDirectory,
-  joinPromptSections,
+  ensurePaperclipSkillSymlink,
   ensurePathInEnv,
-  refreshPaperclipWorkspaceEnvForExecution,
+  isPaperclipSkillSourceMissing,
+  joinPromptSections,
   parseObject,
+  readPaperclipIssueWorkModeFromContext,
+  readPaperclipRuntimeSkillEntries,
+  refreshPaperclipWorkspaceEnvForExecution,
+  removeMaintainerOnlySkillSymlinks,
   renderTemplate,
+  resolveLegacyPaperclipDesiredSkillNames,
+  hydrateFreshSessionHandoff,
+  selectPaperclipPromptSections,
+  selectInitialCommunicationGuidance,
+  isPaperclipRecoveryWakePayload,
   DEFAULT_PAPERCLIP_AGENT_PROMPT_TEMPLATE,
+  DEFAULT_PAPERCLIP_CONVERSATION_PROMPT_TEMPLATE,
 } from "@paperclipai/adapter-utils/server-utils";
-import { DEFAULT_ANTIGRAVITY_LOCAL_MODEL, SANDBOX_INSTALL_COMMAND } from "../index.js";
-import { firstNonEmptyLine } from "../utils.js";
+import {
+  adapterExecutionTargetIsRemote,
+  adapterExecutionTargetRemoteCwd,
+  adapterExecutionTargetSessionIdentity,
+  adapterExecutionTargetSessionMatches,
+  overrideAdapterExecutionTargetRemoteCwd,
+  runAdapterExecutionTargetProcess,
+  resolveAdapterExecutionTargetCommandForLogs,
+  resolveAdapterExecutionTargetTimeoutSec,
+  readAdapterExecutionTarget,
+} from "@paperclipai/adapter-utils/execution-target";
+import { DEFAULT_ANTIGRAVITY_LOCAL_MODEL, resolveAntigravityModel } from "../index.js";
+import {
+  parseAntigravityStreamJson,
+  createAntigravityStreamParser,
+  isAntigravityRateLimited,
+  detectAntigravityAuthRequired,
+  extractAntigravityResetTime,
+  isAntigravitySessionUnrecoverable,
+  describeAntigravityFailure,
+} from "./parse.js";
+import {
+  recordAntigravityRunUsage,
+  setAntigravityCooldown,
+  selectAntigravityExecutionPlan,
+  classifyAntigravityModelFamily,
+  isAgentLeadershipRole,
+  readCompanyPoolRuntimeConfig,
+  updateCompanyActivePoolAccount,
+  prepareAntigravityAccountProfileHome,
+  getAntigravityProfileHome,
+  getAntigravityAccountCredentialsSync,
+  type AntigravityExecutionCandidate,
+} from "./quota.js";
+import { resolveAntigravitySkillsHome } from "./skills.js";
 
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const DEFAULT_ANTIGRAVITY_TERMINAL_RESULT_GRACE_MS = 1_000;
+const DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60 * 60 * 1000; // 1 hour default cooldown on 429
 
-/**
- * Resolves the effective working directory (CWD) paths based on agent instructions, 
- * configuration fallbacks, and local strategy configurations.
- * 
- * @param config - The raw adapter configuration dictionary.
- * @param workspaceContext - Parsed workspace settings from Paperclip context.
- * @returns Resolves the target CWD and the effective workspace fallback CWD.
- */
-async function resolveEffectiveCwd(
-  config: Record<string, unknown>,
-  workspaceContext: Record<string, unknown>
-): Promise<{ cwd: string; effectiveWorkspaceCwd: string }> {
-  const workspaceCwd = asString(workspaceContext.cwd, "");
-  const workspaceSource = asString(workspaceContext.source, "");
-  const configuredCwd = asString(config.cwd, "");
-  
-  const useConfiguredInsteadOfAgentHome = workspaceSource === "agent_home" && configuredCwd.length > 0;
-  const effectiveWorkspaceCwd = useConfiguredInsteadOfAgentHome ? "" : workspaceCwd;
-  const cwd = effectiveWorkspaceCwd || configuredCwd || process.cwd();
-  
-  await ensureAbsoluteDirectory(cwd, { createIfMissing: true });
-  return { cwd, effectiveWorkspaceCwd };
+function hasNonEmptyEnvValue(env: Record<string, unknown>, key: string): boolean {
+  const raw = env[key];
+  return typeof raw === "string" && raw.trim().length > 0;
 }
 
-/**
- * Builds the comprehensive environment variables mapping for process spawning, 
- * injecting Antigravity specific selectors and Paperclip framework environment bindings.
- * 
- * @param runId - The unique sequence run identifier.
- * @param agent - The executing Paperclip Agent structure.
- * @param config - The raw adapter configuration dictionary.
- * @param model - The resolved Antigravity model name.
- * @param authToken - Optional authentication bearer token.
- * @returns An environment mapping ready for process injection.
- */
-function buildExecutionEnvironment(
-  runId: string,
-  agent: AdapterAgent,
-  config: Record<string, unknown>,
-  model: string,
-  authToken: string | null | undefined
-): { env: Record<string, string>; envConfig: Record<string, unknown> } {
-  const envConfig = parseObject(config.env);
-  const env: Record<string, string> = { ...buildPaperclipEnv(agent) };
-  env.PAPERCLIP_RUN_ID = runId;
-
-  if (model && model !== DEFAULT_ANTIGRAVITY_LOCAL_MODEL) {
-    env.ANTIGRAVITY_MODEL = model;
+function buildHeadlessEnv(env: Record<string, string>): Record<string, string> {
+  const next = { ...env };
+  const term = env.TERM?.trim().toLowerCase();
+  if (!term || term === "dumb" || term === "vt100") {
+    next.TERM = "xterm-256color";
   }
-
-  if (authToken && typeof envConfig.PAPERCLIP_API_KEY !== "string") {
-    env.PAPERCLIP_API_KEY = authToken;
+  if (!next.COLORTERM?.trim()) {
+    next.COLORTERM = "truecolor";
   }
-
-  return { env, envConfig };
+  next.NO_BROWSER = "1";
+  delete next.NO_COLOR;
+  return next;
 }
 
-/**
- * Compiles the prompt template into a fully hydrated prompt payload block.
- * 
- * @param promptTemplate - The prompt template containing wildcards.
- * @param agent - The executing Paperclip Agent structure.
- * @param runId - The unique run ID sequence.
- * @param context - The global Paperclip execution context.
- * @returns The fully rendered prompt payload.
- */
-function compileAgentPrompt(
-  promptTemplate: string,
-  agent: AdapterAgent,
-  runId: string,
-  context: Record<string, unknown>
-): string {
-  const templateData = {
-    agentId: agent.id,
-    companyId: agent.companyId,
-    runId,
-    agent,
-    context,
+function buildAntigravityRuntimeEnv(env: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(ensurePathInEnv({ ...process.env, ...buildHeadlessEnv(env) })).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
+}
+
+function renderPaperclipEnvNote(env: Record<string, string>): string {
+  const paperclipKeys = Object.keys(env)
+    .filter((key) => key.startsWith("PAPERCLIP_"))
+    .sort();
+  if (paperclipKeys.length === 0) return "";
+  return [
+    "Paperclip runtime note:",
+    `The following PAPERCLIP_* environment variables are available in this run: ${paperclipKeys.join(", ")}`,
+    "Do not assume these variables are missing without checking your shell environment.",
+    "",
+    "",
+  ].join("\n");
+}
+
+function renderApiAccessNote(env: Record<string, string>): string {
+  if (!hasNonEmptyEnvValue(env, "PAPERCLIP_API_URL") || !hasNonEmptyEnvValue(env, "PAPERCLIP_API_KEY")) return "";
+  return [
+    "Paperclip API access note:",
+    "Use run_command with curl to make Paperclip API requests.",
+    "GET example:",
+    `  run_command({ CommandLine: "curl -s -H \\"Authorization: Bearer $PAPERCLIP_API_KEY\\" \\"$PAPERCLIP_API_URL/api/agents/me\\"" })`,
+    "POST/PATCH example:",
+    `  run_command({ CommandLine: "curl -s -X POST -H \\"Authorization: Bearer $PAPERCLIP_API_KEY\\" -H 'Content-Type: application/json' -H \\"X-Paperclip-Run-Id: $PAPERCLIP_RUN_ID\\" -d '{...}' \\"$PAPERCLIP_API_URL/api/issues/$PAPERCLIP_TASK_ID/checkout\\"" })`,
+    "When PAPERCLIP_TASK_ID is not set, substitute a real issue id from the current context; never send a placeholder like {id} in the URL.",
+    "",
+    "",
+  ].join("\n");
+}
+
+async function ensureAntigravitySkillsInjected(
+  onLog: AdapterExecutionContext["onLog"],
+  skillsEntries: Array<{ key: string; runtimeName: string; source: string }>,
+  desiredSkillNames?: string[],
+  skillsHome = resolveAntigravitySkillsHome({}),
+): Promise<void> {
+  const desiredSet = new Set(desiredSkillNames ?? skillsEntries.map((entry) => entry.key));
+  const selectedEntries = skillsEntries.filter((entry) => desiredSet.has(entry.key));
+  if (selectedEntries.length === 0) return;
+
+  try {
+    await fs.mkdir(skillsHome, { recursive: true });
+  } catch (err) {
+    await onLog(
+      "stderr",
+      `[paperclip] Failed to prepare Antigravity skills directory ${skillsHome}: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    return;
+  }
+
+  const removedSkills = await removeMaintainerOnlySkillSymlinks(
+    skillsHome,
+    selectedEntries.map((entry) => entry.runtimeName),
+  );
+  for (const skillName of removedSkills) {
+    await onLog(
+      "stderr",
+      `[paperclip] Removed maintainer-only Antigravity skill "${skillName}" from ${skillsHome}\n`,
+    );
+  }
+
+  const linkSkill = async (src: string, tgt: string) => {
+    try {
+      await fs.symlink(src, tgt, process.platform === "win32" ? "junction" : "dir");
+    } catch {
+      await fs.symlink(src, tgt);
+    }
   };
 
-  const renderedPrompt = renderTemplate(promptTemplate, templateData);
-  return joinPromptSections([renderedPrompt]);
-}
-
-/**
- * Generates the clean CLI argument list for spawning the `agy` process.
- * Maps session IDs, prompts, and active workspaces to repeatable arguments.
- * 
- * @param prompt - The compiled orchestrator prompt payload.
- * @param resumeSessionId - Optional session ID to resume (resets turn contexts).
- * @param workspaces - Active Paperclip workspace mappings to register.
- * @param sandbox - Indicates whether OS and terminal sandboxing is enabled.
- * @param extraArgs - Structured list of user-defined CLI arguments to append.
- * @returns An array representing the formatted CLI arguments list.
- */
-function compileAgyArguments(
-  prompt: string,
-  resumeSessionId: string | null,
-  workspaces: unknown[],
-  sandbox: boolean,
-  extraArgs: string[]
-): string[] {
-  const args = ["--print", prompt];
-  if (resumeSessionId) {
-    args.push("--conversation", resumeSessionId);
-  }
-  
-  for (const ws of workspaces) {
-    const wsObj = parseObject(ws);
-    const wsCwd = asString(wsObj.cwd, "");
-    if (wsCwd.length > 0) {
-      args.push("--add-dir", wsCwd);
+  for (const entry of selectedEntries) {
+    const target = path.join(skillsHome, entry.runtimeName);
+    try {
+      const result = await ensurePaperclipSkillSymlink(entry.source, target, linkSkill);
+      if (result === "skipped") continue;
+      await onLog(
+        "stderr",
+        `[paperclip] ${result === "repaired" ? "Repaired" : "Linked"} Antigravity skill: ${entry.key}\n`,
+      );
+    } catch (err) {
+      await onLog(
+        "stderr",
+        `[paperclip] Failed to link Antigravity skill "${entry.key}": ${err instanceof Error ? err.message : String(err)}\n`,
+      );
     }
   }
-
-  args.push("--dangerously-skip-permissions");
-  if (sandbox) {
-    args.push("--sandbox");
-  }
-  if (extraArgs.length > 0) {
-    args.push(...extraArgs);
-  }
-  return args;
 }
 
 /**
  * Core execution engine function for Google Antigravity local CLI integrations.
- * Decomposes process preparation, remote SSH workspace syncs, Paperclip bridge handshakes, 
- * and command invocation into a robust, strongly-typed pipeline.
- * 
- * @param ctx - The unified adapter execution context containing metadata, configurations, and logs handlers.
+ * Supports streaming telemetries, account pooling, token checkpoints, tools, and error recoveries.
+ *
+ * @param ctx - The unified adapter execution context.
  * @returns A promise resolving to the final adapter execution output structure.
  */
 export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExecutionResult> {
-  const { runId, agent, runtime, config, context, onLog, onMeta, onSpawn, authToken } = ctx;
+  const {
+    runId,
+    agent,
+    runtime,
+    context,
+    onLog,
+    onMeta,
+    onSpawn,
+    authToken,
+  } = ctx;
+
+  const config = parseObject(ctx.config);
+  const providerStop = createProviderStoppedBoundary(ctx.onProviderStopped);
   const executionTarget = readAdapterExecutionTarget({
     executionTarget: ctx.executionTarget,
     legacyRemoteExecution: ctx.executionTransport?.remoteExecution,
   });
   const executionTargetIsRemote = adapterExecutionTargetIsRemote(executionTarget);
 
-  const promptTemplate = asString(config.promptTemplate, DEFAULT_PAPERCLIP_AGENT_PROMPT_TEMPLATE);
-  const command = asString(config.command, "agy");
-  const model = asString(config.model, DEFAULT_ANTIGRAVITY_LOCAL_MODEL).trim();
-  const sandbox = asBoolean(config.sandbox, false);
+  const command = asString(config.command, "agy").trim() || "agy";
+  const envConfig = parseObject(config.env);
+  const model = resolveAntigravityModel(config.model, {
+    ...(process.env as Record<string, unknown>),
+    ...envConfig,
+  });
+  const effort = asString(config.effort, "").trim();
+  const dangerouslySkipPermissions = asBoolean(config.dangerouslySkipPermissions, true);
+  const explicitAccountProfile = asString(config.accountProfile, "").trim();
+
+  const timeoutSec = resolveAdapterExecutionTargetTimeoutSec(
+    executionTarget,
+    asNumber(config.timeoutSec, 0),
+  );
+  const graceSec = asNumber(config.graceSec, 15);
+  const terminalResultCleanupGraceMs = Math.max(
+    0,
+    asNumber(config.terminalResultCleanupGraceMs, DEFAULT_ANTIGRAVITY_TERMINAL_RESULT_GRACE_MS),
+  );
 
   const workspaceContext = parseObject(context.paperclipWorkspace);
-  const { cwd, effectiveWorkspaceCwd } = await resolveEffectiveCwd(config, workspaceContext);
-  let effectiveExecutionCwd = adapterExecutionTargetRemoteCwd(executionTarget, cwd);
+  const workspaceCwd = asString(workspaceContext.cwd, "");
+  const workspaceSource = asString(workspaceContext.source, "");
+  const workspaceId = asString(workspaceContext.workspaceId, "");
+  const workspaceRepoUrl = asString(workspaceContext.repoUrl, "");
+  const workspaceRepoRef = asString(workspaceContext.repoRef, "");
+  const agentHome = asString(workspaceContext.agentHome, "");
+  const workspaceHints = Array.isArray(context.paperclipWorkspaces)
+    ? context.paperclipWorkspaces.filter(
+        (value): value is Record<string, unknown> => typeof value === "object" && value !== null,
+      )
+    : [];
+  const configuredCwd = asString(config.cwd, "").trim();
+  const useConfiguredInsteadOfAgentHome = workspaceSource === "agent_home" && configuredCwd.length > 0;
+  const effectiveWorkspaceCwd = useConfiguredInsteadOfAgentHome ? "" : workspaceCwd;
+  const cwd = path.resolve(effectiveWorkspaceCwd || configuredCwd || process.cwd());
+  const effectiveExecutionCwd = adapterExecutionTargetRemoteCwd(executionTarget, cwd);
+  const runtimeExecutionTarget = overrideAdapterExecutionTargetRemoteCwd(executionTarget, effectiveExecutionCwd);
+  await ensureAbsoluteDirectory(cwd, { createIfMissing: true });
 
-  const { env, envConfig } = buildExecutionEnvironment(runId, agent, config, model, authToken);
+  const antigravitySkillEntries = await readPaperclipRuntimeSkillEntries(config, __moduleDir);
+  const desiredAntigravitySkillNames = resolveLegacyPaperclipDesiredSkillNames(
+    config,
+    antigravitySkillEntries,
+  );
+
+  const baseEnv: Record<string, string> = {
+    ...buildPaperclipEnv(agent),
+    ...buildRuntimeToolsEnv(ctx.runtimeTools),
+  };
+  baseEnv.PAPERCLIP_RUN_ID = runId;
+
+  const wakeTaskId =
+    (typeof context.taskId === "string" && context.taskId.trim().length > 0 && context.taskId.trim()) ||
+    (typeof context.issueId === "string" && context.issueId.trim().length > 0 && context.issueId.trim()) ||
+    null;
+  const wakeReason =
+    typeof context.wakeReason === "string" && context.wakeReason.trim().length > 0
+      ? context.wakeReason.trim()
+      : null;
+  const wakeCommentId =
+    (typeof context.wakeCommentId === "string" && context.wakeCommentId.trim().length > 0 && context.wakeCommentId.trim()) ||
+    (typeof context.commentId === "string" && context.commentId.trim().length > 0 && context.commentId.trim()) ||
+    null;
+  const approvalId =
+    typeof context.approvalId === "string" && context.approvalId.trim().length > 0
+      ? context.approvalId.trim()
+      : null;
+  const approvalStatus =
+    typeof context.approvalStatus === "string" && context.approvalStatus.trim().length > 0
+      ? context.approvalStatus.trim()
+      : null;
+  const linkedIssueIds = Array.isArray(context.issueIds)
+    ? context.issueIds.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+    : [];
+  const issueWorkMode = readPaperclipIssueWorkModeFromContext(context);
+  if (wakeTaskId) baseEnv.PAPERCLIP_TASK_ID = wakeTaskId;
+  if (issueWorkMode) baseEnv.PAPERCLIP_ISSUE_WORK_MODE = issueWorkMode;
+  if (wakeReason) baseEnv.PAPERCLIP_WAKE_REASON = wakeReason;
+  if (wakeCommentId) baseEnv.PAPERCLIP_WAKE_COMMENT_ID = wakeCommentId;
+  if (approvalId) baseEnv.PAPERCLIP_APPROVAL_ID = approvalId;
+  if (approvalStatus) baseEnv.PAPERCLIP_APPROVAL_STATUS = approvalStatus;
+  if (linkedIssueIds.length > 0) baseEnv.PAPERCLIP_LINKED_ISSUE_IDS = linkedIssueIds.join(",");
 
   refreshPaperclipWorkspaceEnvForExecution({
-    env,
+    env: baseEnv,
     envConfig,
     workspaceCwd: effectiveWorkspaceCwd,
-    workspaceSource: asString(workspaceContext.source, ""),
-    workspaceId: asString(workspaceContext.workspaceId, ""),
-    workspaceRepoUrl: asString(workspaceContext.repoUrl, ""),
-    workspaceRepoRef: asString(workspaceContext.repoRef, ""),
-    workspaceHints: [],
-    agentHome: asString(workspaceContext.agentHome, ""),
+    workspaceSource,
+    workspaceId,
+    workspaceRepoUrl,
+    workspaceRepoRef,
+    workspaceHints,
+    agentHome,
     executionTargetIsRemote,
     executionCwd: effectiveExecutionCwd,
   });
 
-  const effectiveEnv = Object.fromEntries(
-    Object.entries({ ...process.env, ...env }).filter(
-      (entry): entry is [string, string] => typeof entry[1] === "string",
-    ),
+  if (authToken) {
+    baseEnv.PAPERCLIP_API_KEY = authToken;
+  }
+
+  // Resolve account pool routing & model-family rotation
+  const isTestCapture = hasNonEmptyEnvValue(envConfig, "PAPERCLIP_TEST_CAPTURE_PATH");
+  const companyPoolConfig = await readCompanyPoolRuntimeConfig(agent.companyId);
+  const poolEnabled =
+    Boolean(explicitAccountProfile) ||
+    Boolean(companyPoolConfig) ||
+    (!isTestCapture && getAntigravityAccountCredentialsSync("account-1").isConnected);
+
+  const routingMode: "leadership" | "worker" = isAgentLeadershipRole(
+    agent,
+    config,
+    companyPoolConfig?.managementRoles,
+  )
+    ? "leadership"
+    : "worker";
+
+  let candidatePlan: AntigravityExecutionCandidate[] = [
+    {
+      accountKey: "default",
+      model,
+      family: classifyAntigravityModelFamily(model),
+      usagePct: 0,
+      weeklyUsagePct: 0,
+    },
+  ];
+  let autoRotateOnRateLimit = asBoolean(
+    config.autoRotateOnRateLimit,
+    companyPoolConfig?.autoRotateOnRateLimit ?? true,
   );
-  const runtimeEnv = Object.fromEntries(
-    Object.entries(ensurePathInEnv(effectiveEnv)).filter(
-      (entry): entry is [string, string] => typeof entry[1] === "string",
-    ),
-  );
 
-  const timeoutSec = resolveAdapterExecutionTargetTimeoutSec(executionTarget, asNumber(config.timeoutSec, 0));
-  const graceSec = asNumber(config.graceSec, 20);
+  if (poolEnabled) {
+    const poolKeys =
+      companyPoolConfig?.workerAccountPool && companyPoolConfig.workerAccountPool.length > 0
+        ? companyPoolConfig.workerAccountPool.map((m) => m.key)
+        : ["account-1", "account-2", "account-3"];
+    const thresholdPct = companyPoolConfig?.rotationThresholdPct ?? 85;
+    const manualActive =
+      explicitAccountProfile && explicitAccountProfile !== "auto"
+        ? explicitAccountProfile
+        : companyPoolConfig?.manualActiveAccount ?? null;
 
-  await ensureAdapterExecutionTargetCommandResolvable(command, executionTarget, cwd, runtimeEnv, {
-    installCommand: SANDBOX_INSTALL_COMMAND,
-    timeoutSec,
-  });
+    const effectiveRequestedModel =
+      isTestCapture && !companyPoolConfig && (!config.model || config.model === DEFAULT_ANTIGRAVITY_LOCAL_MODEL)
+        ? DEFAULT_ANTIGRAVITY_LOCAL_MODEL
+        : model;
 
-  const resolvedCommand = await resolveAdapterExecutionTargetCommandForLogs(command, executionTarget, cwd, runtimeEnv);
-  const loggedEnv = buildInvocationEnvForLogs(env, {
-    runtimeEnv,
-    includeRuntimeKeys: ["HOME"],
-    resolvedCommand,
-  });
+    const plan = await selectAntigravityExecutionPlan(poolKeys, thresholdPct, {
+      routingMode,
+      manualActiveAccount: manualActive,
+      requestedModel: effectiveRequestedModel,
+      skipLiveProbe: isTestCapture,
+    });
+
+    const resolvedCandidates =
+      isTestCapture && !companyPoolConfig && (!config.model || config.model === DEFAULT_ANTIGRAVITY_LOCAL_MODEL)
+        ? plan.candidates.map((c) => ({ ...c, model: DEFAULT_ANTIGRAVITY_LOCAL_MODEL }))
+        : plan.candidates;
+
+    if (
+      explicitAccountProfile &&
+      explicitAccountProfile !== "auto" &&
+      !resolvedCandidates.some((c) => c.accountKey === explicitAccountProfile)
+    ) {
+      const firstModel = resolvedCandidates[0]?.model ?? model;
+      candidatePlan = [
+        {
+          accountKey: explicitAccountProfile,
+          model: firstModel,
+          family: classifyAntigravityModelFamily(firstModel),
+          usagePct: 0,
+          weeklyUsagePct: 0,
+        },
+        ...resolvedCandidates,
+      ];
+    } else if (resolvedCandidates.length > 0) {
+      candidatePlan = resolvedCandidates;
+    }
+
+    const primaryCandidate = candidatePlan[0]!;
+    if (plan.wasAutoRotated && companyPoolConfig) {
+      await updateCompanyActivePoolAccount(agent.companyId, primaryCandidate.accountKey, true);
+      await onLog(
+        "stderr",
+        `[paperclip] Pool Antigravity (${routingMode === "leadership" ? "Liderança / Gemini 4 Argon" : "Worker"}) selecionou "${primaryCandidate.accountKey}" com modelo "${primaryCandidate.model}" (${plan.status}).\n`,
+      );
+    } else if (companyPoolConfig && companyPoolConfig.lastActiveAccount !== primaryCandidate.accountKey) {
+      await updateCompanyActivePoolAccount(agent.companyId, primaryCandidate.accountKey, false);
+    }
+  }
 
   const extraArgs = (() => {
     const fromExtraArgs = asStringArray(config.extraArgs);
     if (fromExtraArgs.length > 0) return fromExtraArgs;
     return asStringArray(config.args);
   })();
+  const promptTemplate = asString(
+    config.promptTemplate,
+    context.conversationMode === true
+      ? DEFAULT_PAPERCLIP_CONVERSATION_PROMPT_TEMPLATE
+      : DEFAULT_PAPERCLIP_AGENT_PROMPT_TEMPLATE,
+  );
+  const bootstrapPromptTemplate = asString(config.bootstrapPromptTemplate, "");
 
-  let restoreRemoteWorkspace: (() => Promise<void>) | null = null;
-  let paperclipBridge: Awaited<ReturnType<typeof startAdapterExecutionTargetPaperclipBridge>> = null;
-  let preparedExecutionTargetRuntime: Awaited<ReturnType<typeof prepareAdapterExecutionTargetRuntime>> | null = null;
-
-  if (executionTargetIsRemote) {
+  let instructionsPrefix = "";
+  const instructionsFilePath = asString(config.instructionsFilePath, "").trim();
+  const instructionsDir = instructionsFilePath ? `${path.dirname(instructionsFilePath)}/` : "";
+  if (instructionsFilePath) {
     try {
-      await onLog("stdout", `[paperclip] Preparing remote execution target ${describeAdapterExecutionTarget(executionTarget)}...\n`);
-      preparedExecutionTargetRuntime = await prepareAdapterExecutionTargetRuntime({
-        runId,
-        target: executionTarget,
-        adapterKey: "antigravity",
-        timeoutSec,
-        workspaceLocalDir: cwd,
-        installCommand: SANDBOX_INSTALL_COMMAND,
-        detectCommand: command,
-        assets: [],
-      });
-      restoreRemoteWorkspace = () => preparedExecutionTargetRuntime!.restoreWorkspace();
-      effectiveExecutionCwd = preparedExecutionTargetRuntime.workspaceRemoteDir ?? effectiveExecutionCwd;
-    } catch (error) {
-      await restoreRemoteWorkspace?.();
-      throw error;
+      const content = await fs.readFile(instructionsFilePath, "utf8");
+      if (content.trim()) {
+        instructionsPrefix =
+          `${content.trim()}\n\n` +
+          `The above agent instructions were loaded from ${instructionsFilePath}. ` +
+          `Resolve any relative file references from ${instructionsDir}.\n\n`;
+      }
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      await onLog("stdout", `[paperclip] Warning: could not read instructions file "${instructionsFilePath}": ${reason}\n`);
     }
   }
 
-  const runtimeExecutionTarget = overrideAdapterExecutionTargetRemoteCwd(executionTarget, effectiveExecutionCwd);
-  
-  if (executionTargetIsRemote && adapterExecutionTargetUsesPaperclipBridge(executionTarget)) {
-    paperclipBridge = await startAdapterExecutionTargetPaperclipBridge({
-      runId,
-      target: runtimeExecutionTarget,
-      runtimeRootDir: preparedExecutionTargetRuntime?.runtimeRootDir ?? null,
-      adapterKey: "antigravity",
-      timeoutSec,
-      hostApiToken: env.PAPERCLIP_API_KEY,
-      onLog,
-    });
-    if (paperclipBridge) {
-      Object.assign(env, paperclipBridge.env);
-    }
-  }
-
-  const runtimeSessionParams = parseObject(runtime.sessionParams);
-  const runtimeSessionId = asString(runtimeSessionParams.sessionId, runtime.sessionId ?? "");
+  const runtimeSessionParams = parseObject(runtime?.sessionParams);
+  const runtimeSessionId = asString(runtimeSessionParams.sessionId, runtime?.sessionId ?? "");
+  const runtimeSessionCwd = asString(runtimeSessionParams.cwd, "");
+  const runtimeSessionAccount = asString(runtimeSessionParams.accountProfile, "");
   const runtimeRemoteExecution = parseObject(runtimeSessionParams.remoteExecution);
-  const canResumeSession =
+  const canResumeSessionBase =
     runtimeSessionId.length > 0 &&
+    (runtimeSessionCwd.length === 0 || path.resolve(runtimeSessionCwd) === path.resolve(effectiveExecutionCwd)) &&
     adapterExecutionTargetSessionMatches(runtimeRemoteExecution, runtimeExecutionTarget);
-  const sessionId = canResumeSession ? runtimeSessionId : null;
+  if (runtimeSessionId && !canResumeSessionBase) {
+    await onLog(
+      "stdout",
+      `[paperclip] Antigravity session "${runtimeSessionId}" was saved for cwd "${runtimeSessionCwd}" and will not be resumed in "${effectiveExecutionCwd}".\n`,
+    );
+  }
 
-  const prompt = compileAgentPrompt(promptTemplate, agent, runId, context);
+  const templateData = {
+    agentId: agent.id,
+    companyId: agent.companyId,
+    runId,
+    company: { id: agent.companyId },
+    agent,
+    run: { id: runId, source: "on_demand" },
+    context,
+  };
 
-  const runAttempt = async (resumeSessionId: string | null) => {
-    const workspaces = Array.isArray(context.paperclipWorkspaces) ? context.paperclipWorkspaces : [];
-    const args = compileAgyArguments(prompt, resumeSessionId, workspaces, sandbox, extraArgs);
-    
+  const buildPrompt = (resumedSession: boolean, currentEnv: Record<string, string>) => {
+    const renderedBootstrapPrompt =
+      !resumedSession && bootstrapPromptTemplate.trim().length > 0
+        ? renderTemplate(bootstrapPromptTemplate, templateData).trim()
+        : "";
+    const { taskContextNote, wakePrompt } = selectPaperclipPromptSections(context, {
+      resumedSession,
+      includeCommunicationGuidance: false,
+    });
+    const shouldUseResumeDeltaPrompt = resumedSession && wakePrompt.length > 0;
+    const renderedPrompt =
+      shouldUseResumeDeltaPrompt || isPaperclipRecoveryWakePayload(context.paperclipWake)
+        ? ""
+        : renderTemplate(promptTemplate, templateData);
+    const sessionHandoffNote = asString(context.paperclipSessionHandoffMarkdown, "").trim();
+    const paperclipEnvNote = renderPaperclipEnvNote(currentEnv);
+    const apiAccessNote = renderApiAccessNote(currentEnv);
+
+    const basePrompt = joinPromptSections([
+      instructionsPrefix,
+      renderedBootstrapPrompt,
+      wakePrompt,
+      taskContextNote,
+      sessionHandoffNote,
+      paperclipEnvNote,
+      apiAccessNote,
+      renderedPrompt,
+    ]);
+
+    return {
+      basePrompt,
+      promptMetrics: {
+        promptChars: basePrompt.length,
+        instructionsChars: instructionsPrefix.length,
+        bootstrapPromptChars: renderedBootstrapPrompt.length,
+        wakePromptChars: wakePrompt.length,
+        taskContextChars: taskContextNote.length,
+        sessionHandoffChars: sessionHandoffNote.length,
+        runtimeNoteChars: paperclipEnvNote.length + apiAccessNote.length,
+        heartbeatPromptChars: renderedPrompt.length,
+      },
+    };
+  };
+
+  const buildArgs = (resumeSessionId: string | null, prompt: string, effectiveModel: string) => {
+    const args = ["-p", prompt, "--output-format", "stream-json"];
+    if (dangerouslySkipPermissions) {
+      args.push("--dangerously-skip-permissions");
+    }
+    if (resumeSessionId) {
+      args.push("--conversation", resumeSessionId);
+    }
+    if (effectiveModel && effectiveModel !== DEFAULT_ANTIGRAVITY_LOCAL_MODEL) {
+      args.push("--model", effectiveModel);
+    }
+    if (effort) {
+      args.push("--effort", effort);
+    }
+    if (extraArgs.length > 0) {
+      args.push(...extraArgs);
+    }
+    return args;
+  };
+
+  const runAttempt = async (candidate: AntigravityExecutionCandidate, resumeSessionId: string | null) => {
+    const { accountKey, model: candidateModel } = candidate;
+    const attemptEnv: Record<string, string> = { ...baseEnv };
+    if (accountKey && accountKey !== "default") {
+      try {
+        const profileHome = await prepareAntigravityAccountProfileHome(accountKey, cwd);
+        attemptEnv.HOME = profileHome;
+        attemptEnv.PAPERCLIP_ANTIGRAVITY_ACCOUNT = accountKey;
+      } catch {
+        // Keep default HOME if preparation fails
+      }
+    }
+
+    if (!executionTargetIsRemote) {
+      await ensureAntigravitySkillsInjected(
+        onLog,
+        antigravitySkillEntries.filter((entry) => !isPaperclipSkillSourceMissing(entry)),
+        desiredAntigravitySkillNames,
+        resolveAntigravitySkillsHome(config, accountKey !== "default" ? accountKey : null),
+      );
+    }
+
+    const invocationEnv = buildHeadlessEnv(attemptEnv);
+    const invocationRuntimeEnv = buildAntigravityRuntimeEnv(attemptEnv);
+    const resolvedCommand = await resolveAdapterExecutionTargetCommandForLogs(
+      command,
+      runtimeExecutionTarget,
+      cwd,
+      invocationRuntimeEnv,
+    );
+
+    await hydrateFreshSessionHandoff(ctx, { resumedSession: Boolean(resumeSessionId) });
+    const { basePrompt, promptMetrics } = buildPrompt(Boolean(resumeSessionId), attemptEnv);
+    const prompt = joinPromptSections([
+      selectInitialCommunicationGuidance(context, { resumedSession: Boolean(resumeSessionId) }),
+      basePrompt,
+    ]);
+
+    const args = buildArgs(resumeSessionId, prompt, candidateModel);
+
     if (onMeta) {
       await onMeta({
         adapterType: "antigravity_local",
         command: resolvedCommand,
         cwd: effectiveExecutionCwd,
-        commandNotes: ["Running Antigravity CLI in headless print mode"],
-        commandArgs: args.map((val, idx) => (idx === 1 ? `<prompt ${prompt.length} chars>` : val)),
-        env: loggedEnv,
+        commandNotes: [
+          "Prompt is passed via agy -p with --output-format stream-json.",
+          accountKey !== "default"
+            ? `Active Antigravity pool account: ${accountKey} (${routingMode === "leadership" ? "Liderança / Gemini 4 Argon" : "Worker"}, model: ${candidateModel}).`
+            : "",
+          dangerouslySkipPermissions ? "Tool approval auto-granted via --dangerously-skip-permissions." : "",
+          resumeSessionId ? `Resuming conversation ${resumeSessionId}.` : "Starting fresh conversation.",
+          instructionsFilePath && instructionsPrefix
+            ? `Loaded agent instructions from ${instructionsFilePath} (relative references from ${instructionsDir}).`
+            : "",
+        ].filter(Boolean),
+        commandArgs: args.map((v) => (v === prompt ? `<prompt ${prompt.length} chars>` : v)),
+        env: buildInvocationEnvForLogs(invocationEnv, {
+          runtimeEnv: invocationRuntimeEnv,
+          includeRuntimeKeys: ["HOME", "PAPERCLIP_ANTIGRAVITY_ACCOUNT"],
+          resolvedCommand,
+        }),
         prompt,
-        promptMetrics: { promptChars: prompt.length },
+        promptMetrics: { ...promptMetrics, promptChars: prompt.length },
         context,
       });
     }
 
-    return await runAdapterExecutionTargetProcess(runId, runtimeExecutionTarget, command, args, {
+    const consumeAccounting = createAntigravityStreamParser();
+    const accountingLog = createUsageCheckpointLog(
+      onLog,
+      (ctx as { onUsage?: (checkpoint: unknown) => Promise<void> | void }).onUsage,
+      (stdout) => {
+      const parsed = consumeAccounting(stdout);
+      return {
+        usage: parsed.usage,
+        costUsd: parsed.costUsd,
+        usageBasis: "per_run",
+        provider: "antigravity",
+        biller: "google",
+        billingType: "subscription",
+        model: candidateModel,
+        complete: parsed.status !== null,
+      };
+    });
+
+    const proc = await runAdapterExecutionTargetProcess(runId, runtimeExecutionTarget, command, args, {
+      onProcessStopped: providerStop.beginInvocation(),
       cwd,
-      env,
+      env: invocationRuntimeEnv,
       timeoutSec,
       graceSec,
       onSpawn,
-      onLog,
+      onRuntimeProgress: ctx.onRuntimeProgress,
+      onLog: accountingLog,
+      terminalResultCleanup: {
+        graceMs: terminalResultCleanupGraceMs,
+        hasTerminalResult: ({ stdout }) => parseAntigravityStreamJson(stdout).status !== null,
+      },
     });
+    await accountingLog.flush();
+
+    return {
+      proc,
+      parsed: parseAntigravityStreamJson(proc.stdout),
+      accountKey,
+      model: candidateModel,
+      family: candidate.family,
+    };
+  };
+
+  const canAccountResumeConversation = async (accountKey: string, sessionId: string | null): Promise<boolean> => {
+    if (!sessionId || !canResumeSessionBase) return false;
+    if (accountKey === "default") return true;
+
+    if (runtimeSessionAccount && runtimeSessionAccount !== accountKey) {
+      await onLog(
+        "stdout",
+        `[paperclip] Antigravity session "${sessionId}" belonged to "${runtimeSessionAccount}"; starting fresh session on "${accountKey}" with handoff.\n`,
+      );
+      return false;
+    }
+
+    const profileHome = getAntigravityProfileHome(accountKey);
+    const brainRoot = path.join(profileHome, ".gemini", "antigravity-cli", "brain");
+    if (!isTestCapture && fsSync.existsSync(brainRoot)) {
+      const convDir = path.join(brainRoot, sessionId);
+      if (!fsSync.existsSync(convDir)) {
+        await onLog(
+          "stdout",
+          `[paperclip] Conversation "${sessionId}" not found in "${accountKey}" brain; starting fresh session with handoff.\n`,
+        );
+        return false;
+      }
+    }
+
+    return true;
   };
 
   try {
-    const proc = await runAttempt(sessionId);
-    
-    if (proc.timedOut) {
+    let activeCandidateIndex = 0;
+    let currentCandidate = candidatePlan[0]!;
+    const canResumeInitial = await canAccountResumeConversation(
+      currentCandidate.accountKey,
+      canResumeSessionBase ? runtimeSessionId : null,
+    );
+    let initialResumeId = canResumeInitial ? runtimeSessionId : null;
+
+    let attempt = await runAttempt(currentCandidate, initialResumeId);
+    let didRetryFresh = false;
+
+    if (
+      initialResumeId &&
+      !attempt.proc.timedOut &&
+      isAntigravitySessionUnrecoverable(attempt.proc.stdout, attempt.proc.stderr)
+    ) {
+      await onLog(
+        "stderr",
+        `[paperclip] Conversation "${initialResumeId}" not found or expired; retrying with fresh session.\n`,
+      );
+      didRetryFresh = true;
+      initialResumeId = null;
+      attempt = await runAttempt(currentCandidate, null);
+    }
+
+    recordAntigravityRunUsage(
+      currentCandidate.accountKey,
+      attempt.parsed.usage,
+      attempt.proc.exitCode === 0,
+      currentCandidate.model,
+    );
+
+    while (
+      !attempt.proc.timedOut &&
+      (isAntigravityRateLimited(attempt.proc.stdout, attempt.proc.stderr) ||
+        detectAntigravityAuthRequired(attempt.proc.stdout, attempt.proc.stderr))
+    ) {
+      const hitRateLimit = isAntigravityRateLimited(attempt.proc.stdout, attempt.proc.stderr);
+      const resetTimeStr = hitRateLimit
+        ? extractAntigravityResetTime(attempt.proc.stdout, attempt.proc.stderr)
+        : null;
+      const parsedResetMs = resetTimeStr ? Date.parse(resetTimeStr) : NaN;
+      const cooldownUntilMs =
+        Number.isFinite(parsedResetMs) && parsedResetMs > Date.now()
+          ? parsedResetMs
+          : Date.now() + DEFAULT_RATE_LIMIT_COOLDOWN_MS;
+
+      if (hitRateLimit) {
+        setAntigravityCooldown(
+          currentCandidate.accountKey,
+          cooldownUntilMs,
+          `Rate limit (429 / Cota esgotada) em ${currentCandidate.model}`,
+          currentCandidate.family,
+        );
+      } else {
+        setAntigravityCooldown(
+          currentCandidate.accountKey,
+          cooldownUntilMs,
+          "Falha de autenticação detectada em execução",
+        );
+      }
+
+      if (!autoRotateOnRateLimit || activeCandidateIndex + 1 >= candidatePlan.length) {
+        break;
+      }
+
+      activeCandidateIndex++;
+      if (!hitRateLimit) {
+        while (
+          activeCandidateIndex < candidatePlan.length &&
+          candidatePlan[activeCandidateIndex]!.accountKey === currentCandidate.accountKey
+        ) {
+          activeCandidateIndex++;
+        }
+        if (activeCandidateIndex >= candidatePlan.length) {
+          break;
+        }
+      }
+
+      const nextCandidate = candidatePlan[activeCandidateIndex]!;
+      await onLog(
+        "stderr",
+        `[paperclip] "${currentCandidate.accountKey}" (${currentCandidate.model}) atingiu limite/erro; rotacionando automaticamente para "${nextCandidate.accountKey}" (${nextCandidate.model}) e repetindo execução...\n`,
+      );
+      if (nextCandidate.accountKey !== currentCandidate.accountKey) {
+        await updateCompanyActivePoolAccount(agent.companyId, nextCandidate.accountKey, true);
+      }
+
+      currentCandidate = nextCandidate;
+      didRetryFresh = true;
+      initialResumeId = null;
+      attempt = await runAttempt(currentCandidate, null);
+      recordAntigravityRunUsage(
+        currentCandidate.accountKey,
+        attempt.parsed.usage,
+        attempt.proc.exitCode === 0,
+        currentCandidate.model,
+      );
+    }
+
+    const rateLimited = isAntigravityRateLimited(attempt.proc.stdout, attempt.proc.stderr);
+    const authRequired = detectAntigravityAuthRequired(attempt.proc.stdout, attempt.proc.stderr);
+    const resetTime = rateLimited ? extractAntigravityResetTime(attempt.proc.stdout, attempt.proc.stderr) : null;
+    const errorMeta = resetTime ? { resetTime } : undefined;
+    const resolvedSessionId = attempt.parsed.sessionId ?? (didRetryFresh ? null : initialResumeId);
+    const resolvedSessionParams = resolvedSessionId
+      ? ({
+          sessionId: resolvedSessionId,
+          cwd: effectiveExecutionCwd,
+          ...(currentCandidate.accountKey !== "default" ? { accountProfile: currentCandidate.accountKey } : {}),
+          ...(workspaceId ? { workspaceId } : {}),
+          ...(workspaceRepoUrl ? { repoUrl: workspaceRepoUrl } : {}),
+          ...(workspaceRepoRef ? { repoRef: workspaceRepoRef } : {}),
+          ...(executionTargetIsRemote
+            ? {
+                remoteExecution: adapterExecutionTargetSessionIdentity(runtimeExecutionTarget),
+              }
+            : {}),
+        } as Record<string, unknown>)
+      : null;
+
+    if (attempt.proc.timedOut) {
       return {
-        exitCode: proc.exitCode,
-        signal: proc.signal,
+        exitCode: attempt.proc.exitCode,
+        signal: attempt.proc.signal,
         timedOut: true,
+        usageBasis: "per_run",
+        usage: attempt.parsed.usage,
+        provider: "antigravity",
+        biller: "google",
+        model: attempt.model,
+        billingType: "subscription",
         errorMessage: `Timed out after ${timeoutSec}s`,
-        errorCode: null,
-        clearSession: false,
+        errorCode: rateLimited ? "rate_limited" : authRequired ? "authentication_required" : "timeout",
+        errorMeta,
+        sessionId: resolvedSessionId,
+        sessionParams: resolvedSessionParams,
+        sessionDisplayId: resolvedSessionId,
+        clearSession: Boolean(didRetryFresh && !resolvedSessionId),
       };
     }
 
-    const failed = (proc.exitCode ?? 0) !== 0;
-    const rawStdout = proc.stdout.trim();
-    const rawStderr = proc.stderr.trim();
-    const fallbackErrorMessage = firstNonEmptyLine(rawStderr) || `Antigravity exited with code ${proc.exitCode ?? -1}`;
-
-    const resolvedSessionParams = sessionId
-      ? {
-          sessionId,
-          cwd: effectiveExecutionCwd,
-          ...(asString(workspaceContext.workspaceId, "") ? { workspaceId: workspaceContext.workspaceId } : {}),
-          ...(executionTargetIsRemote ? { remoteExecution: adapterExecutionTargetSessionIdentity(runtimeExecutionTarget) } : {}),
-        }
-      : null;
+    const success = attempt.proc.exitCode === 0 && attempt.parsed.status !== "ERROR";
+    const errorMessage = success ? undefined : describeAntigravityFailure(attempt.proc);
+    const resultJson: Record<string, unknown> = {
+      ...(attempt.parsed.resultEvent ?? {
+        stdout: attempt.proc.stdout,
+        stderr: attempt.proc.stderr,
+      }),
+    };
 
     return {
-      exitCode: proc.exitCode,
-      signal: proc.signal,
+      exitCode: attempt.proc.exitCode,
+      signal: attempt.proc.signal,
       timedOut: false,
-      errorMessage: failed ? fallbackErrorMessage : null,
-      errorCode: null,
-      usage: { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
-      sessionId: sessionId || null,
-      sessionParams: resolvedSessionParams,
-      sessionDisplayId: sessionId || null,
-      provider: "google",
+      usageBasis: "per_run",
+      summary: attempt.parsed.summary,
+      usage: attempt.parsed.usage,
+      provider: "antigravity",
       biller: "google",
-      model,
-      billingType: "api",
-      costUsd: null,
-      resultJson: { raw: rawStdout },
-      summary: failed ? "" : rawStdout,
-      question: null,
-      clearSession: false,
+      model: attempt.model,
+      billingType: "subscription",
+      costUsd: attempt.parsed.costUsd ?? undefined,
+      errorMessage: errorMessage ?? undefined,
+      errorCode: rateLimited ? "rate_limited" : authRequired ? "authentication_required" : undefined,
+      errorMeta,
+      sessionId: resolvedSessionId,
+      sessionParams: resolvedSessionParams,
+      sessionDisplayId: resolvedSessionId,
+      resultJson,
+      clearSession: Boolean(didRetryFresh && !resolvedSessionId),
     };
   } finally {
-    await Promise.all([
-      paperclipBridge?.stop(),
-      restoreRemoteWorkspace?.(),
-    ]);
+    await providerStop.collectBeforeRestore();
   }
 }

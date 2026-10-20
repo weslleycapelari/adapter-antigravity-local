@@ -1,58 +1,55 @@
 /**
  * @fileoverview Skills synchronization and registration subsystem for Google Antigravity local CLI plugins.
- * Manages symlinks connecting Paperclip runtime skill definitions into the target `~/.agy/plugins` directory.
- * 
+ * Manages symlinks connecting Paperclip runtime skill definitions into the target `~/.gemini/antigravity-cli/skills` directory,
+ * with support for per-account isolated profile directories.
+ *
  * @copyright Antigravity Adapter Contributors
  * @license MIT
  */
 
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type {
-  AdapterSkillContext,
-  AdapterSkillSnapshot,
-} from "@paperclipai/adapter-utils";
+import type { AdapterSkillContext, AdapterSkillSnapshot } from "@paperclipai/adapter-utils";
 import {
   buildPersistentSkillSnapshot,
   ensurePaperclipSkillSymlink,
   readPaperclipRuntimeSkillEntries,
   readInstalledSkillTargets,
-  resolvePaperclipDesiredSkillNames,
+  resolveLegacyPaperclipDesiredSkillNames,
 } from "@paperclipai/adapter-utils/server-utils";
+import { getAntigravityProfileHome, resolveRealHomeDir } from "./quota.js";
 
-import { isNonEmptyString } from "../utils.js";
-
-/** Module level directory path resolution. */
 const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
 
 /**
- * Trims and returns a string if it is a non-empty string, or returns null otherwise.
- *
- * @param value - The value to inspect.
- * @returns The trimmed string or null.
- */
-function readNonEmptyString(value: unknown): string | null {
-  return isNonEmptyString(value) ? value.trim() : null;
-}
-
-/**
- * Resolves the effective target plugins directory path (`~/.agy/plugins`).
- * Respects customized HOME env variables configured within the adapter runtime context.
+ * Resolves the effective target skills directory path (`~/.gemini/antigravity-cli/skills`).
+ * Respects customized HOME env variables or account profiles configured within the adapter runtime context.
  *
  * @param config - The raw configuration object dictionary.
- * @returns Fully qualified absolute path to the Antigravity plugins directory.
+ * @param overrideAccountProfile - Optional explicit account profile key.
+ * @returns Fully qualified absolute path to the Antigravity skills directory.
  */
-function resolveAntigravitySkillsHome(config: Record<string, unknown>): string {
+export function resolveAntigravitySkillsHome(
+  config: Record<string, unknown>,
+  overrideAccountProfile?: string | null,
+): string {
   const env =
     typeof config.env === "object" && config.env !== null && !Array.isArray(config.env)
       ? (config.env as Record<string, unknown>)
       : {};
-  const configuredHome = readNonEmptyString(env.HOME);
-  const home = configuredHome ? path.resolve(configuredHome) : os.homedir();
-  
-  return path.join(home, ".agy", "plugins");
+  const configuredHome = typeof env.HOME === "string" && env.HOME.trim() ? env.HOME.trim() : null;
+  const accountProfile =
+    (typeof overrideAccountProfile === "string" && overrideAccountProfile.trim()) ||
+    (typeof config.accountProfile === "string" && config.accountProfile.trim()) ||
+    null;
+  const home = configuredHome
+    ? path.resolve(configuredHome)
+    : accountProfile
+      ? getAntigravityProfileHome(accountProfile)
+      : resolveRealHomeDir();
+
+  return path.join(home, ".gemini", "antigravity-cli", "skills");
 }
 
 /**
@@ -61,21 +58,21 @@ function resolveAntigravitySkillsHome(config: Record<string, unknown>): string {
  * @param config - The raw adapter configuration dictionary.
  * @returns Complete persistent skill state snapshot.
  */
-async function buildAntigravitySkillSnapshot(config: Record<string, unknown>): Promise<AdapterSkillSnapshot> {
+async function buildSkillSnapshot(config: Record<string, unknown>): Promise<AdapterSkillSnapshot> {
   const availableEntries = await readPaperclipRuntimeSkillEntries(config, __moduleDir);
-  const desiredSkills = resolvePaperclipDesiredSkillNames(config, availableEntries);
+  const desiredSkills = resolveLegacyPaperclipDesiredSkillNames(config, availableEntries);
   const skillsHome = resolveAntigravitySkillsHome(config);
   const installed = await readInstalledSkillTargets(skillsHome);
-  
+
   return buildPersistentSkillSnapshot({
     adapterType: "antigravity_local",
     availableEntries,
     desiredSkills,
     installed,
     skillsHome,
-    locationLabel: "~/.agy/plugins",
-    missingDetail: "Configured but not currently linked into the Antigravity plugins home.",
-    externalConflictDetail: "Plugin name is occupied by an external installation.",
+    locationLabel: "~/.gemini/antigravity-cli/skills",
+    missingDetail: "Configured but not currently linked into Antigravity skills.",
+    externalConflictDetail: "Skill name is occupied by an external installation.",
     externalDetail: "Installed outside Paperclip management.",
   });
 }
@@ -87,62 +84,56 @@ async function buildAntigravitySkillSnapshot(config: Record<string, unknown>): P
  * @returns Resolved skills state snapshot.
  */
 export async function listAntigravitySkills(ctx: AdapterSkillContext): Promise<AdapterSkillSnapshot> {
-  return buildAntigravitySkillSnapshot(ctx.config);
+  return buildSkillSnapshot(ctx.config);
 }
 
 /**
  * Synchronizes the filesystem target symlinks between Paperclip's repository and 
- * the local `~/.agy/plugins` directory. Establishes missing links and prunes obsolete ones.
+ * the local `~/.gemini/antigravity-cli/skills` directory. Establishes missing links and prunes obsolete ones.
  *
  * @param ctx - The adapter skills operation context.
  * @param desiredSkills - List of skill keys chosen by the orchestrator to sync.
- * @returns Refreshed skills snapshot representing the active post-sinc state.
+ * @returns Refreshed skills snapshot representing the active post-sync state.
  */
 export async function syncAntigravitySkills(
   ctx: AdapterSkillContext,
   desiredSkills: string[],
 ): Promise<AdapterSkillSnapshot> {
   const availableEntries = await readPaperclipRuntimeSkillEntries(ctx.config, __moduleDir);
-  
-  // Assemble the unified set of skills to install (explicitly desired + required system skills)
   const desiredSet = new Set([
     ...desiredSkills,
-    ...availableEntries.filter((entry) => entry.required).map((entry) => entry.key),
+    ...availableEntries
+      .filter((entry) => (entry as { required?: boolean }).required)
+      .map((entry) => entry.key),
   ]);
-  
   const skillsHome = resolveAntigravitySkillsHome(ctx.config);
   await fs.mkdir(skillsHome, { recursive: true });
-  
   const installed = await readInstalledSkillTargets(skillsHome);
   const availableByRuntimeName = new Map(availableEntries.map((entry) => [entry.runtimeName, entry]));
 
-  // Step 1: Install and establish symlinks for desired skills
-  for (const available of availableEntries) {
-    if (!desiredSet.has(available.key)) {
-      continue;
+  const linkSkill = async (src: string, tgt: string) => {
+    try {
+      await fs.symlink(src, tgt, process.platform === "win32" ? "junction" : "dir");
+    } catch {
+      await fs.symlink(src, tgt);
     }
+  };
+
+  for (const available of availableEntries) {
+    if (!desiredSet.has(available.key)) continue;
     const target = path.join(skillsHome, available.runtimeName);
-    await ensurePaperclipSkillSymlink(available.source, target);
+    await ensurePaperclipSkillSymlink(available.source, target, linkSkill);
   }
 
-  // Step 2: Identify and prune obsolete/orphaned symlinks previously managed by Paperclip
   for (const [name, installedEntry] of installed.entries()) {
     const available = availableByRuntimeName.get(name);
-    if (!available) {
-      continue;
-    }
-    if (desiredSet.has(available.key)) {
-      continue;
-    }
-    if (installedEntry.targetPath !== available.source) {
-      continue;
-    }
-    
-    const targetLink = path.join(skillsHome, name);
-    await fs.unlink(targetLink).catch(() => {});
+    if (!available) continue;
+    if (desiredSet.has(available.key)) continue;
+    if (installedEntry.targetPath !== available.source) continue;
+    await fs.unlink(path.join(skillsHome, name)).catch(() => {});
   }
 
-  return buildAntigravitySkillSnapshot(ctx.config);
+  return buildSkillSnapshot(ctx.config);
 }
 
 /**
@@ -156,5 +147,5 @@ export function resolveAntigravityDesiredSkillNames(
   config: Record<string, unknown>,
   availableEntries: Array<{ key: string; required?: boolean }>,
 ): string[] {
-  return resolvePaperclipDesiredSkillNames(config, availableEntries);
+  return resolveLegacyPaperclipDesiredSkillNames(config, availableEntries);
 }
