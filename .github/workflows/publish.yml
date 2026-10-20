@@ -28,11 +28,11 @@ jobs:
       - name: Validate TypeScript Types
         run: npm run typecheck
 
-      - name: Run Quality Test Suite
-        run: npm test
-
       - name: Build Production Assets
         run: npm run build
+
+      - name: Run Quality Test Suite
+        run: npm test
 
       - name: Publish Package to NPM Registry
         run: npm publish --access public

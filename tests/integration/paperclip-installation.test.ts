@@ -28,6 +28,13 @@ describe("Paperclip AI Adapter Installation & Verification", () => {
     projectRoot = process.cwd();
     tempHostDir = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-install-host-"));
 
+    // Ensure dist exists before packing
+    try {
+      await fs.access(path.join(projectRoot, "dist", "index.js"));
+    } catch {
+      await execAsync("npm run build", { cwd: projectRoot });
+    }
+
     // Generate npm package tarball (same artifact published to npm)
     const { stdout: packStdout } = await execAsync(
       `npm pack --pack-destination "${tempHostDir}"`,
