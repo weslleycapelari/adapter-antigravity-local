@@ -4,6 +4,7 @@
 [![Build & Test Status](https://img.shields.io/github/actions/workflow/status/weslleycapelari/adapter-antigravity-local/publish.yml?style=flat-square)](https://github.com/weslleycapelari/adapter-antigravity-local/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 [![Tests Passed](https://img.shields.io/badge/Tests--Passed-97%20/%2097-brightgreen?style=flat-square)](tests)
+[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/weslleycapelari/badge.svg)](https://hub.xerj.org/contributors/weslleycapelari)
 
 An enterprise-grade, high-performance **Paperclip AI** adapter engineered for modern **Google Antigravity** (`agy` CLI) agents running locally.
 
