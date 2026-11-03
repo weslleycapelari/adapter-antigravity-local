@@ -61,6 +61,7 @@ import {
   extractAntigravityResetTime,
   isAntigravitySessionUnrecoverable,
   describeAntigravityFailure,
+  hasDeniedActions,
 } from "./parse.js";
 import {
   recordAntigravityRunUsage,
@@ -688,6 +689,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     if (
       initialResumeId &&
       !attempt.proc.timedOut &&
+      !hasDeniedActions(attempt.parsed) &&
       isAntigravitySessionUnrecoverable(attempt.proc.stdout, attempt.proc.stderr)
     ) {
       await onLog(
@@ -702,12 +704,13 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     recordAntigravityRunUsage(
       currentCandidate.accountKey,
       attempt.parsed.usage,
-      attempt.proc.exitCode === 0,
+      attempt.proc.exitCode === 0 && !hasDeniedActions(attempt.parsed),
       currentCandidate.model,
     );
 
     while (
       !attempt.proc.timedOut &&
+      !hasDeniedActions(attempt.parsed) &&
       (isAntigravityRateLimited(attempt.proc.stdout, attempt.proc.stderr) ||
         detectAntigravityAuthRequired(attempt.proc.stdout, attempt.proc.stderr))
     ) {
@@ -769,7 +772,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       recordAntigravityRunUsage(
         currentCandidate.accountKey,
         attempt.parsed.usage,
-        attempt.proc.exitCode === 0,
+        attempt.proc.exitCode === 0 && !hasDeniedActions(attempt.parsed),
         currentCandidate.model,
       );
     }
@@ -816,17 +819,25 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       };
     }
 
-    const success = attempt.proc.exitCode === 0 && attempt.parsed.status !== "ERROR";
-    const errorMessage = success ? undefined : describeAntigravityFailure(attempt.proc);
+    const permissionDenied = hasDeniedActions(attempt.parsed);
+    const success = attempt.proc.exitCode === 0 && attempt.parsed.status !== "ERROR" && !permissionDenied;
+    const errorMessage = permissionDenied
+      ? "Antigravity denied required tool permissions. Automatic recovery is blocked until the CLI permissions are repaired; a board comment alone does not change CLI permissions."
+      : success ? undefined : describeAntigravityFailure(attempt.proc);
     const resultJson: Record<string, unknown> = {
       ...(attempt.parsed.resultEvent ?? {
         stdout: attempt.proc.stdout,
         stderr: attempt.proc.stderr,
       }),
+      ...(permissionDenied ? {
+        permissionDenied: true,
+        failureReason: "antigravity_permission_denied",
+        configurationIncomplete: { reason: "antigravity_permission_denied" },
+      } : {}),
     };
 
     return {
-      exitCode: attempt.proc.exitCode,
+      exitCode: permissionDenied ? (attempt.proc.exitCode || 1) : attempt.proc.exitCode,
       signal: attempt.proc.signal,
       timedOut: false,
       usageBasis: "per_run",
@@ -838,7 +849,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       billingType: "subscription",
       costUsd: attempt.parsed.costUsd ?? undefined,
       errorMessage: errorMessage ?? undefined,
-      errorCode: rateLimited ? "rate_limited" : authRequired ? "authentication_required" : undefined,
+      errorCode: permissionDenied ? "configuration_incomplete" : rateLimited ? "rate_limited" : authRequired ? "authentication_required" : undefined,
       errorMeta,
       sessionId: resolvedSessionId,
       sessionParams: resolvedSessionParams,

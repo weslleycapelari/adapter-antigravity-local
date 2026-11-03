@@ -351,3 +351,13 @@ export function describeAntigravityFailure(
 
   return "Antigravity run completed without result";
 }
+
+/**
+ * Returns true when the CLI result reports tool actions that were denied by the
+ * active permission mode. A denied action cannot be fixed by retrying the same
+ * run, so callers should surface it as a configuration problem.
+ */
+export function hasDeniedActions(parsed: Pick<AntigravityParseResult, "resultEvent">): boolean {
+  const denied = parsed.resultEvent?.denied_actions;
+  return Array.isArray(denied) && denied.length > 0;
+}
