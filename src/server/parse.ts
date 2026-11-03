@@ -185,6 +185,12 @@ export function createAntigravityStreamParser(): (stdout: string) => Antigravity
       errorMessage,
       status,
       resultEvent,
+      stepUsage: {
+        inputTokens: [...stepUsages.values()].reduce((sum, usage) => sum + usage.inputTokens, 0),
+        outputTokens: [...stepUsages.values()].reduce((sum, usage) => sum + usage.outputTokens, 0),
+        cachedInputTokens: [...stepUsages.values()].reduce((sum, usage) => sum + (usage.cachedInputTokens ?? 0), 0),
+      },
+      sessionUsage: finalUsage,
     };
   };
 }

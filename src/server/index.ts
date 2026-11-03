@@ -49,6 +49,7 @@ export {
 import type { AdapterSessionCodec } from "@paperclipai/adapter-utils";
 import type { AntigravitySessionParams } from "../types.js";
 import { isNonEmptyString } from "../utils.js";
+import { readUsageTotals } from "./run-accounting.js";
 
 /**
  * Trims and returns a string if it is a non-empty string, or returns null otherwise.
@@ -105,6 +106,7 @@ export function parseSessionParams(record: Record<string, unknown>): Antigravity
       ? (record.remoteExecution as Record<string, unknown>)
       : null;
 
+  const antigravityUsageTotals = readUsageTotals(record.antigravityUsageTotals);
   return {
     sessionId,
     ...(cwd ? { cwd } : {}),
@@ -113,6 +115,7 @@ export function parseSessionParams(record: Record<string, unknown>): Antigravity
     ...(repoUrl ? { repoUrl } : {}),
     ...(repoRef ? { repoRef } : {}),
     ...(remoteExecution ? { remoteExecution } : {}),
+    ...(antigravityUsageTotals ? { antigravityUsageTotals } : {}),
   };
 }
 

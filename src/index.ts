@@ -7,7 +7,7 @@
  */
 
 import { type ServerAdapterModule } from "@paperclipai/adapter-utils";
-import { execute, testEnvironment } from "./server/index.js";
+import { execute, testEnvironment, sessionCodec, listAntigravitySkills, syncAntigravitySkills } from "./server/index.js";
 import {
   DEFAULT_ANTIGRAVITY_LOCAL_MODEL,
   DEFAULT_LEADERSHIP_ARGON_MODEL,
@@ -146,6 +146,9 @@ export function createServerAdapter(): ServerAdapterModule {
     type,
     execute,
     testEnvironment,
+    sessionCodec,
+    listSkills: listAntigravitySkills,
+    syncSkills: syncAntigravitySkills,
     models,
     supportsLocalAgentJwt: true,
     supportsInstructionsBundle: true,
