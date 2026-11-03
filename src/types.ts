@@ -181,6 +181,8 @@ export interface AntigravityAdapterConfig {
  * Extends Record<string, unknown> to remain fully compliant with Paperclip's codec interface.
  */
 export interface AntigravitySessionParams extends Record<string, unknown> {
+  /** Last known native conversation totals, scoped to this persisted session. */
+  antigravityUsageTotals?: { inputTokens: number; outputTokens: number; cachedInputTokens: number };
   /** The conversation ID generated natively by the Antigravity CLI. */
   sessionId: string;
   /** The absolute working directory of the active session. */
@@ -231,6 +233,10 @@ export interface AntigravityModelProfileDefinition {
  * Structured result of parsing the Antigravity CLI stream-json output.
  */
 export interface AntigravityParseResult {
+  /** Usage of unique step updates observed in the current invocation. */
+  stepUsage?: UsageSummary;
+  /** Native conversation totals when a terminal result includes usage. */
+  sessionUsage?: UsageSummary | null;
   /** The conversation ID extracted from init, step_update, or result events. */
   sessionId: string | null;
   /** The accumulated final response summary text. */

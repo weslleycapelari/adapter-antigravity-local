@@ -9,6 +9,7 @@
 
 import { createProviderStoppedBoundary } from "@paperclipai/adapter-utils/provider-stopped-boundary";
 import { createUsageCheckpointLog } from "./usage-checkpoint.js";
+import { normalizeRunAccounting, addUsage } from "./run-accounting.js";
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import path from "node:path";
@@ -55,7 +56,6 @@ import {
 import { DEFAULT_ANTIGRAVITY_LOCAL_MODEL, resolveAntigravityModel } from "../index.js";
 import {
   parseAntigravityStreamJson,
-  createAntigravityStreamParser,
   isAntigravityRateLimited,
   detectAntigravityAuthRequired,
   extractAntigravityResetTime,
@@ -534,6 +534,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     return args;
   };
 
+  let priorAttemptUsage = addUsage(null, null);
   const runAttempt = async (candidate: AntigravityExecutionCandidate, resumeSessionId: string | null) => {
     const { accountKey, model: candidateModel } = candidate;
     const attemptEnv: Record<string, string> = { ...baseEnv };
@@ -602,22 +603,29 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       });
     }
 
-    const consumeAccounting = createAntigravityStreamParser();
+    const accountingOptions = {
+      resumeSessionId,
+      sessionUsageBaseline: resumeSessionId === runtimeSessionId
+        ? runtimeSessionParams.antigravityUsageTotals : null,
+    };
     const accountingLog = createUsageCheckpointLog(
       onLog,
       (ctx as { onUsage?: (checkpoint: unknown) => Promise<void> | void }).onUsage,
       (stdout) => {
-      const parsed = consumeAccounting(stdout);
-      return {
-        usage: parsed.usage,
-        costUsd: parsed.costUsd,
-        usageBasis: "per_run",
-        provider: "antigravity",
-        biller: "google",
-        billingType: "subscription",
-        model: candidateModel,
-        complete: parsed.status !== null,
-      };
+        // The logger supplies complete growing snapshots. Keep the public parser
+        // incremental, but parse each checkpoint snapshot independently.
+        const parsed = parseAntigravityStreamJson(stdout);
+        const accounting = normalizeRunAccounting(parsed, accountingOptions);
+        return {
+          usage: addUsage(priorAttemptUsage, accounting.usage),
+          costUsd: parsed.costUsd,
+          usageBasis: "per_run",
+          provider: "antigravity",
+          biller: "google",
+          billingType: "subscription",
+          model: candidateModel,
+          complete: parsed.status !== null,
+        };
     });
 
     const proc = await runAdapterExecutionTargetProcess(runId, runtimeExecutionTarget, command, args, {
@@ -636,9 +644,20 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     });
     await accountingLog.flush();
 
+    const parsed = parseAntigravityStreamJson(proc.stdout);
+    const accounting = normalizeRunAccounting(parsed, accountingOptions);
+    if (accounting.incomplete) {
+      await onLog("stderr", "[paperclip] Antigravity usage baseline unavailable for this resumed conversation; counting observed current-run steps and marking usage incomplete. The next complete result will seed the baseline.\n");
+    }
+    priorAttemptUsage = addUsage(priorAttemptUsage, accounting.usage);
+    recordAntigravityRunUsage(accountKey, accounting.usage,
+      proc.exitCode === 0, candidateModel);
+
     return {
       proc,
-      parsed: parseAntigravityStreamJson(proc.stdout),
+      parsed: { ...parsed, usage: accounting.usage },
+      accounting,
+      runUsage: { ...priorAttemptUsage },
       accountKey,
       model: candidateModel,
       family: candidate.family,
@@ -698,13 +717,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       initialResumeId = null;
       attempt = await runAttempt(currentCandidate, null);
     }
-
-    recordAntigravityRunUsage(
-      currentCandidate.accountKey,
-      attempt.parsed.usage,
-      attempt.proc.exitCode === 0,
-      currentCandidate.model,
-    );
 
     while (
       !attempt.proc.timedOut &&
@@ -766,12 +778,6 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       didRetryFresh = true;
       initialResumeId = null;
       attempt = await runAttempt(currentCandidate, null);
-      recordAntigravityRunUsage(
-        currentCandidate.accountKey,
-        attempt.parsed.usage,
-        attempt.proc.exitCode === 0,
-        currentCandidate.model,
-      );
     }
 
     const rateLimited = isAntigravityRateLimited(attempt.proc.stdout, attempt.proc.stderr);
@@ -782,6 +788,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     const resolvedSessionParams = resolvedSessionId
       ? ({
           sessionId: resolvedSessionId,
+          ...(attempt.accounting.sessionUsage ? { antigravityUsageTotals: attempt.accounting.sessionUsage } : {}),
           cwd: effectiveExecutionCwd,
           ...(currentCandidate.accountKey !== "default" ? { accountProfile: currentCandidate.accountKey } : {}),
           ...(workspaceId ? { workspaceId } : {}),
@@ -795,13 +802,19 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         } as Record<string, unknown>)
       : null;
 
+    const accountingMetadata = {
+      version: 1,
+      source: attempt.accounting.source,
+      incomplete: attempt.accounting.incomplete,
+      sessionUsage: attempt.accounting.sessionUsage,
+    };
     if (attempt.proc.timedOut) {
       return {
         exitCode: attempt.proc.exitCode,
         signal: attempt.proc.signal,
         timedOut: true,
         usageBasis: "per_run",
-        usage: attempt.parsed.usage,
+        usage: attempt.runUsage,
         provider: "antigravity",
         biller: "google",
         model: attempt.model,
@@ -812,6 +825,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         sessionId: resolvedSessionId,
         sessionParams: resolvedSessionParams,
         sessionDisplayId: resolvedSessionId,
+        resultJson: { antigravityAccounting: accountingMetadata },
         clearSession: Boolean(didRetryFresh && !resolvedSessionId),
       };
     }
@@ -823,6 +837,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
         stdout: attempt.proc.stdout,
         stderr: attempt.proc.stderr,
       }),
+      antigravityAccounting: accountingMetadata,
     };
 
     return {
@@ -831,7 +846,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       timedOut: false,
       usageBasis: "per_run",
       summary: attempt.parsed.summary,
-      usage: attempt.parsed.usage,
+      usage: attempt.runUsage,
       provider: "antigravity",
       biller: "google",
       model: attempt.model,

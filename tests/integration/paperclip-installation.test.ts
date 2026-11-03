@@ -57,9 +57,13 @@ describe("Paperclip AI Adapter Installation & Verification", () => {
     );
 
     // Install the packed adapter into the isolated host
+    const installEnv = { ...process.env };
+    // New npm versions propagate this parent flag even with --ignore-scripts,
+    // then reject it for project installs. Lifecycle scripts remain disabled.
+    delete installEnv.npm_config_allow_scripts;
     await execAsync(
       `npm install "${tarballPath}" --prefer-offline --ignore-scripts --no-audit --no-fund --no-progress`,
-      { cwd: tempHostDir },
+      { cwd: tempHostDir, env: installEnv },
     );
   }, 120000);
 
@@ -120,6 +124,12 @@ if (typeof serverAdapter.execute !== "function") {
 }
 if (typeof serverAdapter.testEnvironment !== "function") {
   throw new Error("Missing testEnvironment method on serverAdapter");
+}
+if (typeof serverAdapter.listSkills !== "function" || typeof serverAdapter.syncSkills !== "function") {
+  throw new Error("Skill management hooks are not registered on serverAdapter");
+}
+if (typeof serverAdapter.sessionCodec?.serialize !== "function") {
+  throw new Error("Session codec is not registered on serverAdapter");
 }
 if (serverAdapter.supportsLocalAgentJwt !== true) {
   throw new Error("Missing supportsLocalAgentJwt on serverAdapter");

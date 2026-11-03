@@ -12,6 +12,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { syncAntigravitySkills, listAntigravitySkills } from "../../src/server/skills.js";
+import { createServerAdapter } from "../../src/index.js";
 
 let mockSourceRoot: string;
 
@@ -127,5 +128,16 @@ describe("skills integration", () => {
 
     expect(snapshot.adapterType).toBe("antigravity_local");
     expect(snapshot.entries.length).toBe(2);
+  });
+
+  it("exposes functional skill hooks through the factory used by Paperclip's plugin loader", async () => {
+    const adapter = createServerAdapter();
+    const ctx = { config: { env: { HOME: tempHome } } };
+    expect(adapter.syncSkills).toBe(syncAntigravitySkills);
+    expect(adapter.listSkills).toBe(listAntigravitySkills);
+    await adapter.syncSkills!(ctx as any, ["test-skill"]);
+    const snapshot = await adapter.listSkills!(ctx as any);
+    expect(snapshot.entries.length).toBe(2);
+    expect(await fs.readlink(path.join(tempHome, ".gemini", "antigravity-cli", "skills", "test-skill-plugin"))).toBe(optSource);
   });
 });
