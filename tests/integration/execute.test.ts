@@ -387,4 +387,50 @@ describe("antigravity local execution", () => {
       provider: "antigravity",
     });
   });
+
+  it("turns a SUCCESS result with denied_actions into a configuration failure without retrying", async () => {
+    runAdapterExecutionTargetProcess.mockResolvedValueOnce({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: JSON.stringify({
+        event: "result",
+        result: {
+          status: "SUCCESS",
+          response: "",
+          conversation_id: "conv-denied",
+          denied_actions: [{ action: "command", display_name: "RunCommand" }],
+          usage: { input_tokens: 10, output_tokens: 1, cache_read_tokens: 0 },
+        },
+      }),
+      stderr: "",
+      pid: 124,
+      startedAt: new Date().toISOString(),
+    });
+
+    const result = await execute({
+      runId: "run-denied",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Antigravity Worker",
+        adapterType: "antigravity_local",
+        adapterConfig: {},
+      },
+      runtime: { sessionId: null, sessionParams: null, sessionDisplayId: null, taskKey: null },
+      config: { command: "agy", dangerouslySkipPermissions: false },
+      context: { paperclipWorkspace: { cwd: "/home/user/workspace", source: "project_primary" } },
+      onLog: async () => {},
+    });
+
+    expect(runAdapterExecutionTargetProcess).toHaveBeenCalledTimes(1);
+    expect(result.exitCode).toBe(1);
+    expect(result.errorCode).toBe("configuration_incomplete");
+    expect(result.errorMessage).toMatch(/permissions/);
+    expect(result.resultJson).toMatchObject({
+      permissionDenied: true,
+      failureReason: "antigravity_permission_denied",
+      configurationIncomplete: { reason: "antigravity_permission_denied" },
+    });
+  });
 });
