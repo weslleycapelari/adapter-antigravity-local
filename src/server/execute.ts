@@ -72,6 +72,7 @@ import {
   updateCompanyActivePoolAccount,
   prepareAntigravityAccountProfileHome,
   getAntigravityProfileHome,
+  getAntigravityProfileEnvironment,
   getAntigravityAccountCredentialsSync,
   type AntigravityExecutionCandidate,
 } from "./quota.js";
@@ -541,10 +542,10 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     if (accountKey && accountKey !== "default") {
       try {
         const profileHome = await prepareAntigravityAccountProfileHome(accountKey, cwd);
-        attemptEnv.HOME = profileHome;
+        Object.assign(attemptEnv, getAntigravityProfileEnvironment(profileHome));
         attemptEnv.PAPERCLIP_ANTIGRAVITY_ACCOUNT = accountKey;
       } catch {
-        // Keep default HOME if preparation fails
+        // Keep the default profile environment if preparation fails
       }
     }
 

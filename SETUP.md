@@ -80,15 +80,43 @@ Add the adapter registration entry:
 
 If you have multiple Google Antigravity subscription accounts (e.g. personal, work, secondary), you can configure account profiles for automatic quota balancing and 429 failover:
 
-1. Create profile directories under your home folder:
-   - `~/.gemini/antigravity-account-1/`
-   - `~/.gemini/antigravity-account-2/`
-2. Authenticate each profile using the `HOME` environment variable:
-   ```bash
-   HOME=~/.gemini/antigravity-account-1 agy auth login
-   HOME=~/.gemini/antigravity-account-2 agy auth login
-   ```
-3. Set `accountProfile: "account-1"` in the agent configuration, or leave empty to allow the adapter's dynamic pool scheduler to distribute runs across available quota windows.
+The default account uses your regular operating-system home directory. Named profiles use isolated homes under `~/.paperclip/credentials/antigravity/<account-key>/`. For example, the adapter expects account tokens at:
+
+- `~/.paperclip/credentials/antigravity/account-1/.gemini/antigravity-cli/antigravity-oauth-token`
+- `~/.paperclip/credentials/antigravity/account-2/.gemini/antigravity-cli/antigravity-oauth-token`
+
+On macOS and Linux, create the named profile homes and authenticate each one with that home active:
+
+```bash
+mkdir -p "$HOME/.paperclip/credentials/antigravity/account-1"
+mkdir -p "$HOME/.paperclip/credentials/antigravity/account-2"
+
+HOME="$HOME/.paperclip/credentials/antigravity/account-1" agy auth login
+HOME="$HOME/.paperclip/credentials/antigravity/account-2" agy auth login
+```
+
+On Windows PowerShell, set both `HOME` and `USERPROFILE` for the login command, then restore them:
+
+```powershell
+$profileHome = Join-Path $env:USERPROFILE ".paperclip\credentials\antigravity\account-1"
+New-Item -ItemType Directory -Force -Path $profileHome | Out-Null
+$oldHome = $env:HOME
+$oldUserProfile = $env:USERPROFILE
+try {
+  $env:HOME = $profileHome
+  $env:USERPROFILE = $profileHome
+  agy auth login
+} finally {
+  $env:HOME = $oldHome
+  $env:USERPROFILE = $oldUserProfile
+}
+```
+
+The adapter recognizes a named profile when its token file exists and contains an access or refresh token. Check that the expected file exists without printing its contents. Then set `accountProfile: "account-1"` in the agent configuration, run a small heartbeat, and confirm the selected profile in the Paperclip run details. Leave `accountProfile` empty to let the adapter's dynamic pool scheduler distribute runs across available quota windows.
+
+Profiles previously created under `~/.gemini/antigravity-account-*` are not moved or deleted. Authenticate again with the isolated home above, or back up and manually migrate credentials if your CLI version supports that safely.
+
+On Windows, the adapter sets both home variables for named-account runs. Separate accounts still depend on the installed CLI's credential storage behavior; if `agy auth login` only stores a shared Windows Credential Manager entry and does not write the expected profile token file, the adapter cannot recognize separate named accounts.
 
 ---
 
