@@ -522,8 +522,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     if (resumeSessionId) {
       args.push("--conversation", resumeSessionId);
     }
-    if (effectiveModel && effectiveModel !== DEFAULT_ANTIGRAVITY_LOCAL_MODEL) {
-      args.push("--model", effectiveModel);
+    const chosenModel = effectiveModel.trim();
+    if (chosenModel && chosenModel !== "inherit") {
+      args.push("--model", chosenModel);
     }
     if (effort) {
       args.push("--effort", effort);
