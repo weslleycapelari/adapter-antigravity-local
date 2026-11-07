@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist",
+    "paperclip:register": "node scripts/register-paperclip-adapter.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

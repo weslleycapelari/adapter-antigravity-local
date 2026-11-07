@@ -63,61 +63,13 @@ Build before installing: this repository keeps compiled `dist` files out of Git,
 
 ## 3. Register the adapter with Paperclip
 
-Run this from any directory. It adds or updates this adapter's entry in `~/.paperclip/adapter-plugins.json` and preserves other registered adapters:
+From the adapter repository root, run:
 
 ```bash
-node <<'NODE'
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-
-const home = os.homedir();
-const manifest = path.join(home, ".paperclip", "adapter-plugins.json");
-const packageDir = path.join(
-  home,
-  ".paperclip",
-  "extensions",
-  "node_modules",
-  "@weslleycapelari",
-  "adapter-antigravity-local"
-);
-
-if (!fs.existsSync(path.join(packageDir, "dist", "index.js"))) {
-  throw new Error(`Built adapter not found at ${packageDir}; complete step 2 first.`);
-}
-
-const adapters = fs.existsSync(manifest)
-  ? JSON.parse(fs.readFileSync(manifest, "utf8"))
-  : [];
-
-if (!Array.isArray(adapters)) {
-  throw new Error(`${manifest} must contain a JSON array.`);
-}
-
-const entry = {
-  id: "agy",
-  type: "antigravity_local",
-  packageName: "@weslleycapelari/adapter-antigravity-local",
-  localPath: packageDir,
-};
-
-const index = adapters.findIndex(
-  (adapter) => adapter.id === entry.id || adapter.type === entry.type
-);
-
-if (index >= 0) {
-  adapters[index] = { ...adapters[index], ...entry };
-} else {
-  adapters.push(entry);
-}
-
-fs.mkdirSync(path.dirname(manifest), { recursive: true });
-fs.writeFileSync(manifest, `${JSON.stringify(adapters, null, 2)}\n`);
-console.log(`Registered ${entry.type} at ${entry.localPath}`);
-NODE
+npm run paperclip:register
 ```
 
-The adapter type must be exactly `antigravity_local`.
+The helper adds or updates the `antigravity_local` entry in `~/.paperclip/adapter-plugins.json`; it preserves the other adapter entries. The adapter type must be exactly `antigravity_local`.
 
 ## 4. Authenticate Antigravity CLI
 
