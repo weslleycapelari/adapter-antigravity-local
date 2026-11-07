@@ -86,6 +86,43 @@ describe("Antigravity stream-json parser", () => {
     expect(result.usage.cachedInputTokens).toBe(200);
   });
 
+  it("counts denied actions without retaining their details in a separate field", () => {
+    const result = parseAntigravityStreamJson(
+      JSON.stringify({
+        event: "result",
+        result: {
+          status: "SUCCESS",
+          response: "",
+          denied_actions: [
+            { type: "tool", command: "sensitive-command", reason: "permission denied" },
+            { type: "tool", reason: "permission denied" },
+          ],
+        },
+      }),
+    );
+
+    expect(result.deniedActionCount).toBe(2);
+    expect(result.summary).toBe("");
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["null", null],
+    ["object", {}],
+    ["string", "invalid"],
+    ["empty array", []],
+  ])("treats %s denied_actions as no denied actions", (_label, deniedActions) => {
+    const result = parseAntigravityStreamJson(
+      JSON.stringify({
+        event: "result",
+        result: { status: "SUCCESS", response: "Done", denied_actions: deniedActions },
+      }),
+    );
+
+    expect(result.deniedActionCount).toBe(0);
+    expect(result.summary).toBe("Done");
+  });
+
   it("captures step error message and reports ERROR status", () => {
     const stdout = JSON.stringify({
       event: "step_update",

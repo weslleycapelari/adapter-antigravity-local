@@ -242,6 +242,159 @@ describe("antigravity local execution", () => {
     expect(cliArgs[cliArgs.indexOf("--effort") + 1]).toBe("max");
   });
 
+  it("fails with a safe message when tool actions were denied and no response was produced", async () => {
+    runAdapterExecutionTargetProcess.mockResolvedValueOnce({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: JSON.stringify({
+        event: "result",
+        result: {
+          status: "SUCCESS",
+          response: " \n ",
+          denied_actions: [
+            {
+              type: "tool",
+              command: "rm -rf /sensitive/workspace",
+              token: "sk-test-secret-value",
+              reason: "permission denied",
+            },
+          ],
+        },
+      }),
+      stderr: "",
+      pid: 301,
+      startedAt: new Date().toISOString(),
+    });
+
+    const result = await execute({
+      runId: "run-local-denied-actions",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Antigravity Worker",
+        adapterType: "antigravity_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: { command: "agy" },
+      context: {
+        paperclipWorkspace: {
+          cwd: "/home/user/workspace",
+          source: "project_primary",
+        },
+      },
+      onLog: async () => {},
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.errorMessage).toBe(
+      "Antigravity could not complete the turn: one or more tool actions were denied and no response was produced.",
+    );
+    expect(result.errorMessage).not.toContain("/sensitive/workspace");
+    expect(result.errorMessage).not.toContain("sk-test-secret-value");
+  });
+
+  it("keeps the run successful when the agent responds after denied actions", async () => {
+    runAdapterExecutionTargetProcess.mockResolvedValueOnce({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: JSON.stringify({
+        event: "result",
+        result: {
+          status: "SUCCESS",
+          response: "I recovered and completed the request.",
+          denied_actions: [{ type: "tool", reason: "permission denied" }],
+        },
+      }),
+      stderr: "",
+      pid: 302,
+      startedAt: new Date().toISOString(),
+    });
+
+    const result = await execute({
+      runId: "run-local-denied-actions-recovered",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Antigravity Worker",
+        adapterType: "antigravity_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: { command: "agy" },
+      context: {
+        paperclipWorkspace: {
+          cwd: "/home/user/workspace",
+          source: "project_primary",
+        },
+      },
+      onLog: async () => {},
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.summary).toBe("I recovered and completed the request.");
+    expect(result.errorMessage).toBeUndefined();
+  });
+
+  it("keeps explicit structured ERROR results failed", async () => {
+    runAdapterExecutionTargetProcess.mockResolvedValueOnce({
+      exitCode: 0,
+      signal: null,
+      timedOut: false,
+      stdout: JSON.stringify({
+        event: "result",
+        result: {
+          status: "ERROR",
+          response: "",
+          error: "Explicit structured error",
+        },
+      }),
+      stderr: "",
+      pid: 303,
+      startedAt: new Date().toISOString(),
+    });
+
+    const result = await execute({
+      runId: "run-local-structured-error",
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Antigravity Worker",
+        adapterType: "antigravity_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: { command: "agy" },
+      context: {
+        paperclipWorkspace: {
+          cwd: "/home/user/workspace",
+          source: "project_primary",
+        },
+      },
+      onLog: async () => {},
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.errorMessage).toBe("Explicit structured error");
+  });
+
   it("resumes session with --conversation flag when valid sessionId is present", async () => {
     await execute({
       runId: "run-local-3",

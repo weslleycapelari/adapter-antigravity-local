@@ -817,8 +817,18 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       };
     }
 
-    const success = attempt.proc.exitCode === 0 && attempt.parsed.status !== "ERROR";
-    const errorMessage = success ? undefined : describeAntigravityFailure(attempt.proc);
+    const deniedWithoutAnswer =
+      attempt.parsed.deniedActionCount > 0 && !attempt.parsed.summary.trim();
+    const deniedActionOnlyFailure =
+      deniedWithoutAnswer && !rateLimited && !authRequired && attempt.parsed.status !== "ERROR";
+    const success =
+      attempt.proc.exitCode === 0 && attempt.parsed.status !== "ERROR" && !deniedWithoutAnswer;
+    const errorMessage = deniedActionOnlyFailure
+      ? "Antigravity could not complete the turn: one or more tool actions were denied and no response was produced."
+      : success
+        ? undefined
+        : describeAntigravityFailure(attempt.proc);
+    const exitCode = deniedActionOnlyFailure && attempt.proc.exitCode === 0 ? 1 : attempt.proc.exitCode;
     const resultJson: Record<string, unknown> = {
       ...(attempt.parsed.resultEvent ?? {
         stdout: attempt.proc.stdout,
@@ -827,7 +837,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     };
 
     return {
-      exitCode: attempt.proc.exitCode,
+      exitCode,
       signal: attempt.proc.signal,
       timedOut: false,
       usageBasis: "per_run",
