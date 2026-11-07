@@ -65,8 +65,7 @@ cd ~/.paperclip/extensions
 npm install @weslleycapelari/adapter-antigravity-local
 ```
 
-For comprehensive installation and configuration guides, check:
-👉 **[SETUP.md](./SETUP.md)**
+For step-by-step source-branch setup, see **[PAPERCLIP_QUICKSTART.md](./PAPERCLIP_QUICKSTART.md)**. For published-package and account-profile details, see **[SETUP.md](./SETUP.md)**.
 
 ---
 

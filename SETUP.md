@@ -1,19 +1,22 @@
-# Paperclip Setup: Antigravity Local Adapter
+# Setup Instructions
 
-This guide installs the adapter from the `codex/fix-three-antigravity-issues` branch, registers it with a local Paperclip instance, authenticates the local Antigravity CLI, restarts Paperclip, and creates a first agent.
+This document explains how to install, register, and configure the modern Antigravity Local Adapter for Paperclip AI.
 
-These commands target macOS with Paperclip running locally as the same user who runs `agy`. Linux is similar; Windows uses different paths and shell syntax.
+Repository:
+- `@weslleycapelari/adapter-antigravity-local`
+
+---
 
 ## 1. Prerequisites
 
-Install and verify:
+Ensure the following tools are installed on your environment:
 
-- Node.js 24.11 or newer
-- npm
-- Paperclip AI
-- Google Antigravity CLI (`agy`)
+- **Node.js 24.11+**
+- **npm 9+**
+- **Paperclip AI**
+- **Google Antigravity CLI (`agy`)**
 
-The adapter's Paperclip utility dependency requires Node.js 24.11 or newer. Check your versions:
+Verify tool availability:
 
 ```bash
 node --version
@@ -21,114 +24,108 @@ npm --version
 agy --version
 ```
 
-Paperclip and `agy` should run under the same macOS account so the adapter can find the CLI and its saved credentials. If Paperclip is running in a container or on another host, install the adapter and `agy` in that environment instead.
-
-## 2. Get and build the adapter branch
-
-If you already have a clone, update it:
-
-```bash
-cd /path/to/adapter-antigravity-local
-git switch codex/fix-three-antigravity-issues
-git pull --ff-only origin codex/fix-three-antigravity-issues
-```
-
-If you do not have a clone yet:
-
-```bash
-mkdir -p "$HOME/src"
-cd "$HOME/src"
-git clone --branch codex/fix-three-antigravity-issues \
-  https://github.com/kevin-kurian/adapter-antigravity-local.git
-cd adapter-antigravity-local
-```
-
-From the adapter repository root, install development dependencies and build the package:
-
-```bash
-npm install
-npm run build
-```
-
-If npm warns that the optional `fsevents` install script is not approved, you can continue if the build succeeds. Avoid approving all dependency scripts just to clear that warning.
-
-Install the built package into Paperclip's extensions directory:
-
-```bash
-mkdir -p "$HOME/.paperclip/extensions"
-npm install --prefix "$HOME/.paperclip/extensions" "$PWD"
-```
-
-Build before installing: this repository keeps compiled `dist` files out of Git, and Paperclip loads the compiled package.
-
-## 3. Register the adapter with Paperclip
-
-From the adapter repository root, run:
-
-```bash
-npm run paperclip:register
-```
-
-The helper adds or updates the `antigravity_local` entry in `~/.paperclip/adapter-plugins.json`; it preserves the other adapter entries. The adapter type must be exactly `antigravity_local`.
-
-## 4. Authenticate Antigravity CLI
-
-`agy auth login` is not a valid command in Antigravity CLI 1.4.12. Authentication starts when you launch the CLI; it uses a saved session if one exists and prompts for Google sign-in when needed.
+Antigravity CLI 1.4.12 signs in when you launch it. `agy auth login` is not a valid subcommand:
 
 ```bash
 cd "$HOME"
 agy
 ```
 
-If prompted, complete sign-in in the browser. Confirm the signed-in account appears in the CLI header, then exit the CLI with **Ctrl+C**. If an account is already shown, you are authenticated.
-
-## 5. Restart Paperclip
-
-In the terminal running Paperclip, stop the current process with **Ctrl+C**. Then restart it from your Paperclip working directory. For the local `npx` installation used in this guide:
-
-```bash
-cd "$HOME"
-npx paperclipai run
-```
-
-Leave this terminal open while using Paperclip. If you run Paperclip as a background service or through another process manager, restart it through that same manager.
-
-On startup, expect log messages similar to:
-
-```text
-Loading external adapter package ... @weslleycapelari/adapter-antigravity-local ...
-Loaded external adapters from plugin store {"count":1,"adapters":["antigravity_local"]}
-```
-
-## 6. Create your first Antigravity agent
-
-1. Open [http://127.0.0.1:3100](http://127.0.0.1:3100).
-2. Go to **Agents** and choose **Create Agent**.
-3. Enter the agent's name and other required details.
-4. On the **Adapter** step, select **Antigravity** (the top-left tile), not **Gemini CLI**.
-5. Select a concrete model from the model menu. To avoid Argon on a Google AI Pro account, choose **Gemini 3.8 Flash (High)**. Model availability depends on your account and can change; choose a model shown as available in the menu.
-6. Select the company and workspace/repository the agent should use, complete any remaining required settings, and save the agent.
-7. Open the new agent and run a heartbeat or test run with a simple prompt.
-8. Confirm that the run completes and produces an answer. Open the run details to inspect its logs and selected model.
-
-The adapter passes a concrete selected model to `agy`. Choose an explicit model instead of **Default** or **Auto (Inherit)** when you want to control which model runs.
-
-## 7. Optional: named account profiles
-
-The default account uses the normal user home. Named profiles are resolved under:
-
-```text
-~/.paperclip/credentials/antigravity/<account-key>/
-```
-
-The adapter looks for the profile token at:
-
-```text
-~/.paperclip/credentials/antigravity/<account-key>/.gemini/antigravity-cli/antigravity-oauth-token
-```
-
-Antigravity CLI 1.4.12 uses its interactive sign-in flow and does not provide an `agy auth login` subcommand. Separate named-profile authentication has not been verified with that CLI version; do not assume that launching `agy` with a different `HOME` creates a separate account. For a reliable first setup, use the default account. If using named profiles, confirm the expected token file exists without displaying its contents, run a small heartbeat with that profile selected, and verify the selected profile in Paperclip.
+Complete browser sign-in if prompted. If your account appears in the CLI header, you are already authenticated. Exit with **Ctrl+C**.
 
 ---
 
-For additional Antigravity CLI authentication details, see the [official installation and authentication guide](https://antigravity.google/docs/install).
+## 2. Install the Adapter
+
+Navigate to your Paperclip extensions directory:
+
+```bash
+cd ~/.paperclip/extensions
+npm install @weslleycapelari/adapter-antigravity-local
+```
+
+Alternatively, if developing locally from source:
+
+```bash
+cd /path/to/adapter-antigravity-local
+npm install
+npm run build
+```
+
+---
+
+## 3. Register the Adapter Plugin
+
+Edit or create the plugin manifest:
+
+```text
+~/.paperclip/adapter-plugins.json
+```
+
+Add this entry to the manifest array, preserving any other adapters already listed:
+
+```json
+[
+  {
+    "id": "agy",
+    "type": "antigravity_local",
+    "packageName": "@weslleycapelari/adapter-antigravity-local",
+    "localPath": "~/.paperclip/extensions/node_modules/@weslleycapelari/adapter-antigravity-local"
+  }
+]
+```
+
+> **Important**: The property `"type": "antigravity_local"` must match exactly so Paperclip renders the modern settings schema and tools UI.
+
+If you installed from the source branch, you can create or update this entry without editing JSON manually by running `npm run paperclip:register` from the adapter repository root.
+
+---
+
+## 4. Multi-Account Pooling Setup (Optional)
+
+If you have multiple Google Antigravity subscription accounts (e.g. personal, work, secondary), you can configure account profiles for automatic quota balancing and 429 failover:
+
+The default account uses your regular operating-system home directory. Named profiles use isolated homes under `~/.paperclip/credentials/antigravity/<account-key>/`. For example, the adapter expects account tokens at:
+
+- `~/.paperclip/credentials/antigravity/account-1/.gemini/antigravity-cli/antigravity-oauth-token`
+- `~/.paperclip/credentials/antigravity/account-2/.gemini/antigravity-cli/antigravity-oauth-token`
+
+On macOS and Linux, create the named profile homes:
+
+```bash
+mkdir -p "$HOME/.paperclip/credentials/antigravity/account-1"
+mkdir -p "$HOME/.paperclip/credentials/antigravity/account-2"
+```
+
+The installed Antigravity CLI 1.4.12 does not provide an `agy auth login` subcommand. Its interactive sign-in uses the system keyring; authenticating separate named accounts by changing `HOME` has not been verified. Do not assume that launching `agy` with a different `HOME` creates a separate profile. The adapter recognizes a named profile only when its expected token file exists.
+
+On Windows, the adapter sets both home variables for named-account runs. Separate accounts still depend on the installed CLI's credential storage behavior; if it does not write a token into the expected profile home, the adapter cannot recognize separate named accounts.
+
+The adapter recognizes a named profile when its token file exists and contains an access or refresh token. Check that the expected file exists without printing its contents. Then set `accountProfile: "account-1"` in the agent configuration, run a small heartbeat, and confirm the selected profile in the Paperclip run details. Leave `accountProfile` empty to let the adapter's dynamic pool scheduler distribute runs across available quota windows.
+
+Profiles previously created under `~/.gemini/antigravity-account-*` are not moved or deleted. Back up credentials before any manual migration.
+
+---
+
+## 5. Restart Paperclip
+
+Stop the running Paperclip daemon and restart:
+
+```bash
+npx paperclipai run
+```
+
+---
+
+## 6. Verify Installation
+
+1. Open the Paperclip Web UI (`http://localhost:3100`).
+2. Navigate to **Agents** ➔ **Create Agent** (or edit an existing one).
+3. Select **Antigravity CLI** in the Adapter dropdown.
+4. Verify modern models appear in the Model dropdown:
+   - `Gemini 4 Argon (High)`
+   - `Gemini 3.8 Flash (High)`
+   - `Claude Opus 5.5 (High)`
+   - `Claude Sonnet 5.5 (High)`
+   - `GPT-OSS 120B (Medium)`
+5. Run an agent heartbeat and confirm live streaming logs, reasoning tokens, and tools execution.
