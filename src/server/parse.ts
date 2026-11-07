@@ -39,6 +39,7 @@ export function createAntigravityStreamParser(): (stdout: string) => Antigravity
   const assistantTexts: string[] = [];
   let finalResponse = "";
   let errorMessage: string | null = null;
+  let deniedActionCount = 0;
   let status: "SUCCESS" | "ERROR" | "ACTIVE" | null = null;
   let resultEvent: Record<string, unknown> | null = null;
   let costUsd: number | null = null;
@@ -131,6 +132,7 @@ export function createAntigravityStreamParser(): (stdout: string) => Antigravity
       if (eventType === "result") {
         const res = parseObject(event.result);
         resultEvent = res;
+        deniedActionCount = Array.isArray(res.denied_actions) ? res.denied_actions.length : 0;
         const convId = asString(res.conversation_id, "").trim();
         if (convId) sessionId = convId;
 
@@ -183,6 +185,7 @@ export function createAntigravityStreamParser(): (stdout: string) => Antigravity
       usage: computeUsage(),
       costUsd,
       errorMessage,
+      deniedActionCount,
       status,
       resultEvent,
     };

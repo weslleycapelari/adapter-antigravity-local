@@ -241,6 +241,8 @@ export interface AntigravityParseResult {
   costUsd: number | null;
   /** Error message if execution encountered a step error or terminal failure. */
   errorMessage: string | null;
+  /** Number of denied tool or other actions reported by the terminal result event. */
+  deniedActionCount: number;
   /** Final execution status ("SUCCESS", "ERROR", "ACTIVE", or null if incomplete). */
   status: "SUCCESS" | "ERROR" | "ACTIVE" | null;
   /** The raw result event dictionary, if parsed. */

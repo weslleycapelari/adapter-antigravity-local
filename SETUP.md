@@ -11,7 +11,7 @@ Repository:
 
 Ensure the following tools are installed on your environment:
 
-- **Node.js 20+**
+- **Node.js 24.11+**
 - **npm 9+**
 - **Paperclip AI**
 - **Google Antigravity CLI (`agy`)**
@@ -24,11 +24,14 @@ npm --version
 agy --version
 ```
 
-Ensure you are logged into Antigravity:
+Antigravity CLI 1.4.12 signs in when you launch it. `agy auth login` is not a valid subcommand:
 
 ```bash
-agy auth login
+cd "$HOME"
+agy
 ```
+
+Complete browser sign-in if prompted. If your account appears in the CLI header, you are already authenticated. Exit with **Ctrl+C**.
 
 ---
 
@@ -59,7 +62,7 @@ Edit or create the plugin manifest:
 ~/.paperclip/adapter-plugins.json
 ```
 
-Add the adapter registration entry:
+Add this entry to the manifest array, preserving any other adapters already listed:
 
 ```json
 [
@@ -74,21 +77,33 @@ Add the adapter registration entry:
 
 > **Important**: The property `"type": "antigravity_local"` must match exactly so Paperclip renders the modern settings schema and tools UI.
 
+If you installed from the source branch, you can create or update this entry without editing JSON manually by running `npm run paperclip:register` from the adapter repository root.
+
 ---
 
 ## 4. Multi-Account Pooling Setup (Optional)
 
 If you have multiple Google Antigravity subscription accounts (e.g. personal, work, secondary), you can configure account profiles for automatic quota balancing and 429 failover:
 
-1. Create profile directories under your home folder:
-   - `~/.gemini/antigravity-account-1/`
-   - `~/.gemini/antigravity-account-2/`
-2. Authenticate each profile using the `HOME` environment variable:
-   ```bash
-   HOME=~/.gemini/antigravity-account-1 agy auth login
-   HOME=~/.gemini/antigravity-account-2 agy auth login
-   ```
-3. Set `accountProfile: "account-1"` in the agent configuration, or leave empty to allow the adapter's dynamic pool scheduler to distribute runs across available quota windows.
+The default account uses your regular operating-system home directory. Named profiles use isolated homes under `~/.paperclip/credentials/antigravity/<account-key>/`. For example, the adapter expects account tokens at:
+
+- `~/.paperclip/credentials/antigravity/account-1/.gemini/antigravity-cli/antigravity-oauth-token`
+- `~/.paperclip/credentials/antigravity/account-2/.gemini/antigravity-cli/antigravity-oauth-token`
+
+On macOS and Linux, create the named profile homes:
+
+```bash
+mkdir -p "$HOME/.paperclip/credentials/antigravity/account-1"
+mkdir -p "$HOME/.paperclip/credentials/antigravity/account-2"
+```
+
+The installed Antigravity CLI 1.4.12 does not provide an `agy auth login` subcommand. Its interactive sign-in uses the system keyring; authenticating separate named accounts by changing `HOME` has not been verified. Do not assume that launching `agy` with a different `HOME` creates a separate profile. The adapter recognizes a named profile only when its expected token file exists.
+
+On Windows, the adapter sets both home variables for named-account runs. Separate accounts still depend on the installed CLI's credential storage behavior; if it does not write a token into the expected profile home, the adapter cannot recognize separate named accounts.
+
+The adapter recognizes a named profile when its token file exists and contains an access or refresh token. Check that the expected file exists without printing its contents. Then set `accountProfile: "account-1"` in the agent configuration, run a small heartbeat, and confirm the selected profile in the Paperclip run details. Leave `accountProfile` empty to let the adapter's dynamic pool scheduler distribute runs across available quota windows.
+
+Profiles previously created under `~/.gemini/antigravity-account-*` are not moved or deleted. Back up credentials before any manual migration.
 
 ---
 

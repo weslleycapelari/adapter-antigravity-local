@@ -128,6 +128,23 @@ export function getAntigravityProfileHome(accountKey: string): string {
   return path.join(realHome, ".paperclip", "credentials", "antigravity", accountKey);
 }
 
+/**
+ * Returns the home-directory environment required to make Antigravity use a named profile.
+ * Windows resolves the CLI home from USERPROFILE, while Unix-like systems use HOME.
+ *
+ * @param profileHome - Isolated profile home returned by getAntigravityProfileHome.
+ * @param platform - Target platform, defaulting to the current runtime platform.
+ * @returns Environment entries that point Antigravity at the profile home.
+ */
+export function getAntigravityProfileEnvironment(
+  profileHome: string,
+  platform: NodeJS.Platform = process.platform,
+): Record<string, string> {
+  return platform === "win32"
+    ? { HOME: profileHome, USERPROFILE: profileHome }
+    : { HOME: profileHome };
+}
+
 function getStorePath(): string {
   const custom = process.env.PAPERCLIP_ANTIGRAVITY_QUOTA_FILE;
   if (custom && custom.trim()) return custom.trim();

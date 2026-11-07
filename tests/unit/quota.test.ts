@@ -5,12 +5,16 @@
  * @license MIT
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   calculateAccountQuotaWindows,
   resolveRealHomeDir,
   getAntigravityProfileHome,
+  getAntigravityProfileEnvironment,
+  getAntigravityAccountCredentialsSync,
   classifyAntigravityModelFamily,
   isAgentLeadershipRole,
   selectAntigravityExecutionPlan,
@@ -126,8 +130,59 @@ describe("Antigravity Quota and Account Pooling", () => {
     it("resolves real home directory without nesting .paperclip credential paths", () => {
       const realHome = resolveRealHomeDir();
       expect(realHome).not.toContain(`${path.sep}.paperclip${path.sep}credentials${path.sep}antigravity`);
-      const profileHome = getAntigravityProfileHome("account-2");
-      expect(profileHome).toContain("account-2");
+      expect(getAntigravityProfileHome("default")).toBe(realHome);
+      expect(getAntigravityProfileHome("account-2")).toBe(
+        path.join(realHome, ".paperclip", "credentials", "antigravity", "account-2"),
+      );
+    });
+
+    it("uses the profile home variables required by each platform", () => {
+      const profileHome = path.join(os.tmpdir(), "agy-account-1");
+
+      expect(getAntigravityProfileEnvironment(profileHome, "darwin")).toEqual({
+        HOME: profileHome,
+      });
+      expect(getAntigravityProfileEnvironment(profileHome, "win32")).toEqual({
+        HOME: profileHome,
+        USERPROFILE: profileHome,
+      });
+    });
+
+    it("discovers an account token from a temporary fake profile home", () => {
+      const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "agy-profile-test-"));
+      const realUserInfo = os.userInfo();
+      const userInfoSpy = vi.spyOn(os, "userInfo").mockReturnValue({
+        ...realUserInfo,
+        homedir: fakeHome,
+      });
+
+      try {
+        const tokenPath = path.join(
+          getAntigravityProfileHome("account-1"),
+          ".gemini",
+          "antigravity-cli",
+          "antigravity-oauth-token",
+        );
+        fs.mkdirSync(path.dirname(tokenPath), { recursive: true });
+        fs.writeFileSync(
+          tokenPath,
+          JSON.stringify({
+            email: "fake@example.com",
+            token: { access_token: "fake-access-token", refresh_token: "fake-refresh-token" },
+          }),
+        );
+
+        expect(getAntigravityAccountCredentialsSync("account-1")).toMatchObject({
+          isConnected: true,
+          email: "fake@example.com",
+          accessToken: "fake-access-token",
+          refreshToken: "fake-refresh-token",
+          tokenPath,
+        });
+      } finally {
+        userInfoSpy.mockRestore();
+        fs.rmSync(fakeHome, { recursive: true, force: true });
+      }
     });
   });
 
