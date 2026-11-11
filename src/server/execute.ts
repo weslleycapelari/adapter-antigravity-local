@@ -522,7 +522,11 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     if (resumeSessionId) {
       args.push("--conversation", resumeSessionId);
     }
-    if (effectiveModel && effectiveModel !== DEFAULT_ANTIGRAVITY_LOCAL_MODEL) {
+    // Always pass the selected model. agy's own default is the model last
+    // chosen in agy, which need not be the adapter default, so omitting the
+    // flag for DEFAULT_ANTIGRAVITY_LOCAL_MODEL silently ran another model.
+    // Only "inherit" deliberately leaves the choice to agy.
+    if (effectiveModel && effectiveModel !== "inherit") {
       args.push("--model", effectiveModel);
     }
     if (effort) {
