@@ -153,6 +153,53 @@ describe("antigravity local execution", () => {
     expect(cliArgs[cliArgs.indexOf("--effort") + 1]).toBe("max");
   });
 
+  it.each([
+    ["gemini-3.8-flash-high", "gemini-3.8-flash-high"],
+    ["inherit", null],
+  ])("handles the %s model selection explicitly", async (model, expected) => {
+    await execute({
+      runId: `run-local-model-${model}`,
+      agent: {
+        id: "agent-1",
+        companyId: "company-1",
+        name: "Antigravity Worker",
+        adapterType: "antigravity_local",
+        adapterConfig: {},
+      },
+      runtime: {
+        sessionId: null,
+        sessionParams: null,
+        sessionDisplayId: null,
+        taskKey: null,
+      },
+      config: {
+        command: "agy",
+        model,
+      },
+      context: {
+        paperclipWorkspace: {
+          cwd: "/home/user/workspace",
+          source: "project_primary",
+        },
+      },
+      onLog: async () => {},
+    });
+
+    const callArgs = runAdapterExecutionTargetProcess.mock.calls.at(-1) as unknown as [
+      string,
+      unknown,
+      string,
+      string[],
+    ];
+    const cliArgs = callArgs[3];
+
+    if (expected) {
+      expect(cliArgs[cliArgs.indexOf("--model") + 1]).toBe(expected);
+    } else {
+      expect(cliArgs).not.toContain("--model");
+    }
+  });
+
   it("resumes session with --conversation flag when valid sessionId is present", async () => {
     await execute({
       runId: "run-local-3",
