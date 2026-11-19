@@ -29,6 +29,8 @@ This adapter serves as a robust, fully typed, production-ready integration suppo
 
 Models are passed directly via the `--model` CLI argument with intelligent alias resolution and leadership vs. worker role routing.
 
+Paperclip lists the models reported by `agy models` on the Paperclip server, including newly available models such as Gemini 4 Neon. Refreshing the model picker queries the CLI again. If the CLI is unavailable or returns no models, Paperclip uses the fallback list below.
+
 | Model Identifier | Display Label | Performance Tier / Family |
 |---|---|---|
 | `inherit` | Auto (Inherit) | Dynamically inherits system or parent model |

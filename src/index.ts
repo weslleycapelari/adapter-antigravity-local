@@ -17,6 +17,7 @@ import {
   DEFAULT_WORKER_GEMINI_MODEL,
   DEFAULT_WORKER_GPT_FALLBACK_MODEL,
 } from "./constants.js";
+import { createModelDiscovery } from "./server/models.js";
 import type { AntigravityModelDefinition, AntigravityModelProfileDefinition } from "./types.js";
 
 export const type = "antigravity_local";
@@ -58,9 +59,11 @@ export function resolveAntigravityModel(
   return DEFAULT_ANTIGRAVITY_LOCAL_MODEL;
 }
 
-/** Supported modern models list exposed to Paperclip web console. */
+const inheritModel = { id: "inherit", label: "Auto (Inherit)" };
+
+/** Fallback models when Paperclip cannot discover the local catalog. */
 export const models: AntigravityModelDefinition[] = [
-  { id: "inherit", label: "Auto (Inherit)" },
+  inheritModel,
   { id: "claude-opus-5-5-high", label: "Claude Opus 5.5 (High)" },
   { id: "claude-opus-5-5-medium", label: "Claude Opus 5.5 (Medium)" },
   { id: "claude-opus-5-5-low", label: "Claude Opus 5.5 (Low)" },
@@ -151,5 +154,6 @@ export function createServerAdapter(): ServerAdapterModule {
     supportsInstructionsBundle: true,
     instructionsPathKey: "instructionsFilePath",
     agentConfigurationDoc,
+    ...createModelDiscovery(inheritModel),
   };
 }
